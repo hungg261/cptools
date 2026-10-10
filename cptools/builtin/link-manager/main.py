@@ -306,7 +306,8 @@ def cmd_open_file(argv):
   cpt link open-file <id>                  open saved file with default editor
   cpt link open-file <id> --with EDITOR    open with specific editor
   cpt link open-file <id> --folder         reveal file in file manager
-  cpt link open-file <id> --latest         pick newest entry (default)
+  cpt link open-file <id> -D, --delete     delete file + entry instead
+  cpt link open-file <id> -D -y            delete without confirmation
 """)
         return 0 if argv else 2
 
@@ -314,10 +315,18 @@ def cmd_open_file(argv):
     parser.add_argument("id")
     parser.add_argument("--with", dest="editor", default=None)
     parser.add_argument("--folder", action="store_true")
+    parser.add_argument("-D", "--delete", action="store_true")
+    parser.add_argument("-y", "--yes", action="store_true")
     try:
         ns = parser.parse_args(argv)
     except SystemExit:
         return 2
+
+    if ns.delete:
+        rm_args = [ns.id]
+        if ns.yes:
+            rm_args.append("-y")
+        return cmd_rm(rm_args)
 
     matches = _find_problems(ns.id)
     if not matches:
@@ -344,6 +353,21 @@ def cmd_open_file(argv):
     _open_with_editor(target, ns.editor, cfg)
     print(f"opened: {target}")
     return 0
+
+
+def _confirm(message: str) -> bool:
+    if sys.stdin.isatty():
+        try:
+            import questionary
+            result = questionary.confirm(message).ask()
+            return bool(result)
+        except Exception:
+            pass
+    try:
+        answer = input(f"{message} [y/N] ").strip().lower()
+    except EOFError:
+        return False
+    return answer in ("y", "yes")
 
 
 def cmd_rm(argv):
@@ -374,10 +398,8 @@ def cmd_rm(argv):
     targets = matches if ns.all else [matches[-1]]
 
     if not ns.yes:
-        import questionary
         names = ", ".join(Path(it.get("path", "")).name for it in targets if it.get("path"))
-        answer = questionary.confirm(f"Delete {len(targets)} file(s)? [{names}]").ask()
-        if not answer:
+        if not _confirm(f"Delete {len(targets)} file(s)? [{names}]"):
             print("aborted")
             return 0
 
@@ -396,6 +418,56 @@ def cmd_rm(argv):
 
     for d in deleted:
         print(f"deleted: {d}")
+    return 0
+
+
+def cmd_undo(argv):
+    if argv and argv[0] in ("-h", "--help"):
+        print("""usage:
+  cpt link undo                 delete the most recently created file
+  cpt link undo -y              skip confirmation
+  cpt link undo --keep-entry    delete file, keep store entry
+""")
+        return 0
+
+    parser = argparse.ArgumentParser(add_help=False, prog="cpt link undo")
+    parser.add_argument("-y", "--yes", action="store_true")
+    parser.add_argument("--keep-entry", action="store_true")
+    try:
+        ns = parser.parse_args(argv)
+    except SystemExit:
+        return 2
+
+    items = load_problems()
+    if not items:
+        print("nothing to undo", file=sys.stderr)
+        return 1
+
+    last = items[-1]
+    path_str = last.get("path", "")
+    pid = last.get("id", "?")
+
+    if not path_str:
+        print(f"last entry has no path (id={pid})", file=sys.stderr)
+        return 1
+
+    p = Path(path_str)
+
+    if not ns.yes:
+        if not _confirm(f"Delete {p.name}?"):
+            print("aborted")
+            return 0
+
+    if p.is_file():
+        p.unlink()
+        print(f"deleted: {p}")
+    else:
+        print(f"file not found: {p}", file=sys.stderr)
+
+    if not ns.keep_entry:
+        items.pop()
+        save_problems(items)
+
     return 0
 
 
@@ -656,6 +728,9 @@ usage:
   cpt link editors [list|detect|known|set|unset]   manage editors
   cpt link config [show|get|set|unset|reset]  manage settings
   cpt link template [list|add|remove|show]    manage templates
+  cpt link open-file <id> [opts]              open a saved file
+  cpt link rm <id> [opts]                     delete file(s) and entry
+  cpt link undo [-y] [--keep-entry]           delete the most recent file
 
 new options:
   -t, --template NAME    template name (default: config.default_template)
@@ -668,6 +743,8 @@ new options:
 open-file options:
   --with EDITOR          open with a specific editor
   --folder               reveal file in file manager
+  -D, --delete           delete file + entry instead of opening
+  -y, --yes              skip confirmation (with --delete)
 
 rm options:
   -y, --yes              skip confirmation
@@ -733,6 +810,7 @@ HANDLERS = {
     "rm": cmd_rm,
     "remove": cmd_rm,
     "delete": cmd_rm,
+    "undo": cmd_undo,
     "editors": cmd_editors,
     "config": cmd_config,
     "template": cmd_template,
