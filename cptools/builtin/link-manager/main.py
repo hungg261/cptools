@@ -400,6 +400,7 @@ def print_help():
     print("""link-manager - competitive programming problem manager
 
 usage:
+  cpt link <url>                              shortcut for: new <url>
   cpt link parse <url>                        parse URL, show info
   cpt link new <url> [opts]                   create source file
   cpt link list                               list saved problems
@@ -429,8 +430,10 @@ config commands:
   reset [-y] [KEY]        reset all (or one) keys to defaults
 
 template placeholders:
-  ${link} ${id} ${oj} ${name} ${date} ${time} ${datetime} ${timestamp}
-  use $$ for a literal $, e.g. $${link} -> ${link}
+  $link  ${link}  and similar: $id $oj $name
+  $date $time $datetime $timestamp
+  use ${var} when followed by letters/digits (e.g. ${id}suffix)
+  use $$ for a literal $ (e.g. $$link -> $link)
 """)
 
 
@@ -482,6 +485,8 @@ def main(argv):
         return 0
     cmd = argv[0]
     if cmd not in HANDLERS:
+        if "://" in cmd:
+            return cmd_new(argv)
         print(f"unknown command: {cmd}", file=sys.stderr)
         print_help()
         return 2

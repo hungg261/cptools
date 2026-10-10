@@ -424,3 +424,46 @@ class TestConfigReset:
         r = run_plugin("config")
         cfg = json.loads(r.stdout)
         assert cfg["oj_dirs"] == {}
+
+class TestShortcut:
+    def test_url_as_first_arg(self, run_plugin, plugin_dirs):
+        r = run_plugin(CF_URL, "-d", str(plugin_dirs["work"]))
+        assert r.returncode == 0
+        assert (plugin_dirs["work"] / "1923A.cpp").exists()
+
+    def test_url_with_template(self, run_plugin, plugin_dirs):
+        r = run_plugin(CF_URL, "-t", "cpp_default", "-d", str(plugin_dirs["work"]))
+        assert r.returncode == 0
+        assert (plugin_dirs["work"] / "1923A.cpp").exists()
+
+    def test_unknown_url_tail_used(self, run_plugin, plugin_dirs):
+        r = run_plugin("https://example.com/problem/xyz", "-d", str(plugin_dirs["work"]))
+        assert r.returncode == 0
+        assert (plugin_dirs["work"] / "xyz.cpp").exists()
+
+    def test_non_url_unknown_command(self, run_plugin):
+        r = run_plugin("foobar")
+        assert r.returncode == 2
+        assert "unknown command" in r.stderr
+
+
+class TestConfigMigration:
+    def test_old_cpp_migrates_to_cpp_default(self, run_plugin, plugin_dirs):
+        cfg_file = plugin_dirs["config"] / "config.json"
+        cfg_file.write_text(
+            json.dumps({
+                "default_dir": "",
+                "fallback_dir": "",
+                "oj_dirs": {},
+                "default_template": "cpp",
+                "default_ext": ".cpp",
+            }),
+            encoding="utf-8",
+        )
+        r = run_plugin("new", CF_URL, "-d", str(plugin_dirs["work"]))
+        assert r.returncode == 0
+        assert (plugin_dirs["work"] / "1923A.cpp").exists()
+
+        r = run_plugin("config")
+        cfg = json.loads(r.stdout)
+        assert cfg["default_template"] == "cpp_default"

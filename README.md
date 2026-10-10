@@ -41,6 +41,7 @@ Manages competitive programming problem URLs and source files.
 
 ```
 cpt link parse <url>                     show info for a URL
+cpt link <url>                           shortcut for: new <url>
 cpt link new <url> [opts]                create a source file
 cpt link list                            list saved problems
 cpt link dir <url>                       show target directory
@@ -67,11 +68,12 @@ Config keys:
 
 Builtin template: `cpp_default` (stored as `cpp_default.txt`).
 
-Templates use `string.Template` placeholders:
+Template placeholders use `string.Template` syntax:
 
 - `$link`, `$id`, `$oj`, `$name`
 - `$date`, `$time`, `$datetime`, `$timestamp`
-- `$$` for a literal `$`
+- Use `${var}` when followed by letters/digits: `${id}suffix`
+- Use `$$` for a literal `$`: `$$link` to `$link`
 
 Example:
 

@@ -31,6 +31,11 @@ def load_config():
     cfg = dict(DEFAULTS)
     cfg.update({k: v for k, v in data.items() if k != "oj_dirs"})
     cfg["oj_dirs"] = dict(data.get("oj_dirs") or {})
+
+    # migrate old default template name
+    if cfg.get("default_template") == "cpp":
+        cfg["default_template"] = "cpp_default"
+
     return cfg
 
 
