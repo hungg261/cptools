@@ -319,7 +319,10 @@ def _safe_extract_tar(src: Path, dest: Path) -> None:
     with tarfile.open(src) as t:
         for member in t.getmembers():
             _safe_join(dest, member.name)
-        t.extractall(dest)
+        if sys.version_info >= (3, 12):
+            t.extractall(dest, filter="data")
+        else:
+            t.extractall(dest)
 
 
 def _find_plugin_dir(root: Path) -> Path | None:

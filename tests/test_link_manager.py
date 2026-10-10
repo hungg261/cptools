@@ -467,3 +467,45 @@ class TestConfigMigration:
         r = run_plugin("config")
         cfg = json.loads(r.stdout)
         assert cfg["default_template"] == "cpp_default"
+
+class TestEditorsCommands:
+    def test_known(self, run_plugin):
+        r = run_plugin("editors", "known")
+        assert r.returncode == 0
+        assert "codeblocks" in r.stdout
+        assert "Code::Blocks" in r.stdout
+        assert "vscode" in r.stdout
+
+    def test_list_ok(self, run_plugin):
+        r = run_plugin("editors", "list")
+        assert r.returncode == 0
+
+    def test_detect_ok(self, run_plugin):
+        r = run_plugin("editors", "detect")
+        assert r.returncode == 0
+        assert "Detected" in r.stdout
+
+    def test_set_and_get(self, run_plugin):
+        r = run_plugin("editors", "set", "mycustom", "/fake/path/editor")
+        assert r.returncode == 0
+        assert "editors.mycustom" in r.stdout
+
+        r = run_plugin("config", "get", "editors.mycustom")
+        assert r.returncode == 0
+        assert r.stdout.strip() == "/fake/path/editor"
+
+    def test_unset(self, run_plugin):
+        run_plugin("editors", "set", "mycustom", "/fake/path")
+        r = run_plugin("editors", "unset", "mycustom")
+        assert r.returncode == 0
+
+        r = run_plugin("config", "get", "editors.mycustom")
+        assert r.returncode == 1
+
+    def test_set_missing_args(self, run_plugin):
+        r = run_plugin("editors", "set", "vscode")
+        assert r.returncode == 2
+
+    def test_unknown_subcommand(self, run_plugin):
+        r = run_plugin("editors", "foobar")
+        assert r.returncode == 2
