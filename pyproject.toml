@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cptools"
+version = "0.1.0"
+description = "Competitive programming tools manager"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "platformdirs>=4.0",
+    "rich>=13.0",
+]
+
+[project.scripts]
+cptools = "cptools.cli:main"
+cpt = "cptools.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["cptools*"]
+
+[tool.setuptools.package-data]
+cptools = ["builtin/**/*"]

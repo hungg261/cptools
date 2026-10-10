@@ -1,0 +1,11 @@
+[plugin]
+name = "link-manager"
+alias = ["link", "gen"]
+version = "0.1.0"
+description = "Manage problem links"
+exec = ["python", "main.py"]
+protocol = 1
+
+[commands]
+parse = "Parse a URL and save it"
+list  = "List saved problems"

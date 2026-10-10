@@ -1,0 +1,10 @@
+[plugin]
+name = "my-plugin"
+alias = []
+version = "0.1.0"
+description = "My plugin"
+exec = ["python", "main.py"]
+protocol = 1
+
+[commands]
+hello = "Print a greeting"
