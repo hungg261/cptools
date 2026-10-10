@@ -30,6 +30,9 @@ def run(plugin: Plugin, args: list[str], invoked_as: str, as_json: bool = False)
     env["CPTOOLS_PLUGIN_CACHE_DIR"] = str(paths.plugin_cache_dir(plugin.name))
     env["CPTOOLS_PROTOCOL"] = str(plugin.protocol)
     env["CPTOOLS_OUTPUT"] = "json" if as_json else "human"
+    env["CPTOOLS_CWD"] = os.getcwd()
+    if "PYTHONIOENCODING" not in env:
+        env["PYTHONIOENCODING"] = "utf-8"
 
     cmd = [*_resolve_cmd(plugin.exec), *args]
 

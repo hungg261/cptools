@@ -1,0 +1,11 @@
+[plugin]
+name = "tree"
+alias = []
+version = "0.1.0"
+description = "Show directory tree"
+exec = ["python", "main.py"]
+protocol = 1
+
+[commands]
+show    = "Show directory tree"
+config  = "Manage settings"
