@@ -12,7 +12,11 @@ license = { text = "MIT" }
 dependencies = [
     "platformdirs>=4.0",
     "rich>=13.0",
+    "questionary>=2.0",
 ]
+
+[project.optional-dependencies]
+rar = ["rarfile>=4.0"]
 
 [project.scripts]
 cptools = "cptools.cli:main"
