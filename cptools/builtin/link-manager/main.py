@@ -73,12 +73,13 @@ def cmd_parse(argv):
 
 def cmd_new(argv):
     if not argv or argv[0] in ("-h", "--help"):
-        print("usage: new <url> [--template NAME] [--dir PATH] [--name NAME]")
+        print("usage: new <url> [--template NAME] [--ext EXT] [--dir PATH] [--name NAME]")
         return 0 if argv else 2
 
     parser = argparse.ArgumentParser(add_help=False, prog="cpt link new")
     parser.add_argument("url")
     parser.add_argument("--template", "-t")
+    parser.add_argument("--ext", "-e")
     parser.add_argument("--dir", "-d")
     parser.add_argument("--name", "-n")
     try:
@@ -95,12 +96,15 @@ def cmd_new(argv):
         target_dir = resolve_dir(cfg, obj.name if obj else None)
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    tpl_name = ns.template or cfg.get("default_template") or "cpp"
+    tpl_name = ns.template or cfg.get("default_template") or "cpp_default"
     tpl_path = find_template(tpl_name)
     if tpl_path is None:
         print(f"template '{tpl_name}' not found (run: cpt link template list)", file=sys.stderr)
         return 1
-    ext = tpl_path.suffix
+
+    ext = ns.ext or cfg.get("default_ext") or ".cpp"
+    if not ext.startswith("."):
+        ext = "." + ext
 
     if ns.name:
         base = ns.name
@@ -366,8 +370,16 @@ usage:
 
 new options:
   -t, --template NAME    template name (default: config.default_template)
+  -e, --ext EXT          output extension (default: config.default_ext)
   -d, --dir PATH         override target directory
   -n, --name NAME        override file name (default: problem id)
+
+config keys:
+  default_dir            default directory for known OJs
+  fallback_dir           directory for unknown OJs
+  oj_dirs.<oj>           per-OJ directory (e.g. oj_dirs.codeforces)
+  default_template       default template name
+  default_ext            default output extension (e.g. .cpp)
 
 config keys:
   default_dir            default directory for known OJs

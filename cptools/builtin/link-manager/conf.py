@@ -16,7 +16,8 @@ DEFAULTS = {
     "default_dir": "",
     "fallback_dir": "",
     "oj_dirs": {},
-    "default_template": "cpp",
+    "default_template": "cpp_default",
+    "default_ext": ".cpp",
 }
 
 

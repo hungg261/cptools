@@ -171,13 +171,13 @@ class TestConfig:
 
 
 class TestTemplate:
-    def test_list_has_cpp(self, run_plugin):
+    def test_list_has_cpp_default(self, run_plugin):
         r = run_plugin("template", "list")
         assert r.returncode == 0
-        assert "cpp" in r.stdout
+        assert "cpp_default" in r.stdout
 
-    def test_show_cpp(self, run_plugin):
-        r = run_plugin("template", "show", "cpp")
+    def test_show_cpp_default(self, run_plugin):
+        r = run_plugin("template", "show", "cpp_default")
         assert r.returncode == 0
         assert "${link}" in r.stdout
         assert "${id}" in r.stdout
@@ -187,8 +187,8 @@ class TestTemplate:
         assert r.returncode == 1
 
     def test_add_and_remove(self, run_plugin, tmp_path):
-        src = tmp_path / "mytpl.py"
-        src.write_text("custom {id}\n", encoding="utf-8")
+        src = tmp_path / "mytpl.txt"
+        src.write_text("custom $id\n", encoding="utf-8")
 
         r = run_plugin("template", "add", str(src), "mytpl")
         assert r.returncode == 0
@@ -213,7 +213,7 @@ class TestTemplate:
 
 class TestNewWithTemplate:
     def test_user_template(self, run_plugin, plugin_dirs, tmp_path):
-        src = tmp_path / "greet.py"
+        src = tmp_path / "greet.txt"
         src.write_text("Hello $id\n", encoding="utf-8")
         run_plugin("template", "add", str(src), "greet")
 
@@ -221,6 +221,7 @@ class TestNewWithTemplate:
             "new",
             CF_URL,
             "-t", "greet",
+            "-e", ".py",
             "-d", str(plugin_dirs["work"]),
         )
         assert r.returncode == 0
@@ -228,9 +229,9 @@ class TestNewWithTemplate:
         assert f.read_text(encoding="utf-8") == "Hello 1923A\n"
 
     def test_user_overrides_builtin(self, run_plugin, plugin_dirs, tmp_path):
-        src = tmp_path / "cpp.cpp"
+        src = tmp_path / "cpp_default.txt"
         src.write_text("// custom $id\n", encoding="utf-8")
-        run_plugin("template", "add", str(src), "cpp")
+        run_plugin("template", "add", str(src), "cpp_default")
 
         r = run_plugin("new", CF_URL, "-d", str(plugin_dirs["work"]))
         assert r.returncode == 0
@@ -298,7 +299,7 @@ class TestStore:
 
 class TestTemplateEscape:
     def test_dollar_dollar_is_literal(self, run_plugin, plugin_dirs, tmp_path):
-        src = tmp_path / "lit.cpp"
+        src = tmp_path / "lit.txt"
         src.write_text("Literal: $$link\nActual: $id\n", encoding="utf-8")
         run_plugin("template", "add", str(src), "lit")
 
@@ -310,7 +311,7 @@ class TestTemplateEscape:
         assert content == "Literal: $link\nActual: 1923A\n"
 
     def test_unknown_var_kept(self, run_plugin, plugin_dirs, tmp_path):
-        src = tmp_path / "unk.cpp"
+        src = tmp_path / "unk.txt"
         src.write_text("keep $unknown here\n", encoding="utf-8")
         run_plugin("template", "add", str(src), "unk")
 
@@ -322,7 +323,7 @@ class TestTemplateEscape:
         assert content == "keep $unknown here\n"
 
     def test_braced_form(self, run_plugin, plugin_dirs, tmp_path):
-        src = tmp_path / "br.cpp"
+        src = tmp_path / "br.txt"
         src.write_text("${id}suffix\n", encoding="utf-8")
         run_plugin("template", "add", str(src), "br")
 
@@ -332,3 +333,37 @@ class TestTemplateEscape:
         assert r.returncode == 0
         content = (plugin_dirs["work"] / "1923A.cpp").read_text(encoding="utf-8")
         assert content == "1923Asuffix\n"
+
+class TestExt:
+    def test_default_ext(self, run_plugin, plugin_dirs):
+        r = run_plugin("new", CF_URL, "-d", str(plugin_dirs["work"]))
+        assert r.returncode == 0
+        assert (plugin_dirs["work"] / "1923A.cpp").exists()
+
+    def test_flag_ext(self, run_plugin, plugin_dirs):
+        r = run_plugin(
+            "new", CF_URL, "-e", ".py", "-d", str(plugin_dirs["work"])
+        )
+        assert r.returncode == 0
+        assert (plugin_dirs["work"] / "1923A.py").exists()
+
+    def test_ext_without_dot(self, run_plugin, plugin_dirs):
+        r = run_plugin(
+            "new", CF_URL, "-e", "rs", "-d", str(plugin_dirs["work"])
+        )
+        assert r.returncode == 0
+        assert (plugin_dirs["work"] / "1923A.rs").exists()
+
+    def test_config_default_ext(self, run_plugin, plugin_dirs):
+        run_plugin("config", "set", "default_ext", ".py")
+        r = run_plugin("new", CF_URL, "-d", str(plugin_dirs["work"]))
+        assert r.returncode == 0
+        assert (plugin_dirs["work"] / "1923A.py").exists()
+
+    def test_flag_overrides_config(self, run_plugin, plugin_dirs):
+        run_plugin("config", "set", "default_ext", ".py")
+        r = run_plugin(
+            "new", CF_URL, "-e", ".rs", "-d", str(plugin_dirs["work"])
+        )
+        assert r.returncode == 0
+        assert (plugin_dirs["work"] / "1923A.rs").exists()

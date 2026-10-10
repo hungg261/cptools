@@ -53,6 +53,7 @@ cpt link template [list|add|remove|show] manage templates
 `new` options:
 
 - `-t, --template NAME` — template name (default: `config.default_template`)
+- `-e, --ext EXT` — output extension (default: `config.default_ext`)
 - `-d, --dir PATH` — override target directory
 - `-n, --name NAME` — override file name (default: problem ID)
 
@@ -62,6 +63,9 @@ Config keys:
 - `fallback_dir` — directory for unknown URLs
 - `oj_dirs.<oj>` — per-OJ directory (e.g. `oj_dirs.codeforces`)
 - `default_template` — default template name
+- `default_ext` — default output extension (e.g. `.cpp`)
+
+Builtin template: `cpp_default` (stored as `cpp_default.txt`).
 
 Templates use `string.Template` placeholders:
 
