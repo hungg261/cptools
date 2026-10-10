@@ -7,8 +7,16 @@ from .console import err_console
 from .manifest import Plugin
 
 
+PYTHON_FAMILY = {"python", "python3", "python.exe", "python3.exe", "py", "py.exe"}
+
+
 def _resolve_cmd(exec_list: list[str]) -> list[str]:
-    if exec_list and exec_list[0].endswith(".py"):
+    if not exec_list:
+        return exec_list
+    first_lower = exec_list[0].lower()
+    if first_lower in PYTHON_FAMILY:
+        return [sys.executable, *exec_list[1:]]
+    if exec_list[0].endswith(".py"):
         return [sys.executable, *exec_list]
     return list(exec_list)
 

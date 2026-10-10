@@ -2,10 +2,12 @@ import argparse
 import json
 import os
 import shutil
-import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+
+from cptools.lib.editor import get_editors, launch as launch_editor, ordered_keys
+from cptools.lib.open import open_file, open_folder, reveal_file
 
 from oj import parse as parse_url, oj_names
 from conf import (
@@ -13,7 +15,7 @@ from conf import (
     load_config, save_config, resolve_dir, expand,
     list_templates, find_template, render_template,
 )
-from store import add_problem, load_problems
+from store import add_problem, load_problems, save_problems
 
 AS_JSON = os.environ.get("CPTOOLS_OUTPUT") == "json"
 
@@ -34,13 +36,47 @@ def unique_path(directory, base, ext):
         i += 1
 
 
-def open_dir(path):
-    if sys.platform == "win32":
-        os.startfile(str(path))
-    elif sys.platform == "darwin":
-        subprocess.run(["open", str(path)])
-    else:
-        subprocess.run(["xdg-open", str(path)])
+def _open_with_editor(path, editor_name, cfg):
+    editor_name = editor_name or cfg.get("default_editor") or ""
+    if not editor_name:
+        open_file(path)
+        return
+    editors = get_editors(cfg.get("editors"))
+    if editor_name not in editors:
+        print(f"editor '{editor_name}' not found, using system default", file=sys.stderr)
+        open_file(path)
+        return
+    launch_editor(editors[editor_name], path)
+
+
+def _ask_and_open(path, cfg):
+    import questionary
+
+    editors = get_editors(cfg.get("editors"))
+    if not editors:
+        answer = questionary.confirm(f"Open {path.name}?").ask()
+        if answer:
+            open_file(path)
+        return
+
+    from cptools.lib.editor import ordered_keys
+
+    default = cfg.get("default_editor") or ""
+    keys = ordered_keys(editors)
+    if default and default in editors:
+        keys = [default] + [k for k in keys if k != default]
+
+    choices = [questionary.Choice(title=editors[k].label, value=k) for k in keys]
+    choices.append(questionary.Choice(title="system default", value="__system__"))
+    choices.append(questionary.Choice(title="no", value="__no__"))
+
+    result = questionary.select("Open with?", choices=choices).ask()
+    if result is None or result == "__no__":
+        return
+    if result == "__system__":
+        open_file(path)
+        return
+    launch_editor(editors[result], path)
 
 
 def cmd_parse(argv):
@@ -73,7 +109,7 @@ def cmd_parse(argv):
 
 def cmd_new(argv):
     if not argv or argv[0] in ("-h", "--help"):
-        print("usage: new <url> [--template NAME] [--ext EXT] [--dir PATH] [--name NAME]")
+        print("usage: new <url> [--template NAME] [--ext EXT] [--dir PATH] [--name NAME] [--open [EDITOR]] [--no-open]")
         return 0 if argv else 2
 
     parser = argparse.ArgumentParser(add_help=False, prog="cpt link new")
@@ -82,6 +118,8 @@ def cmd_new(argv):
     parser.add_argument("--ext", "-e")
     parser.add_argument("--dir", "-d")
     parser.add_argument("--name", "-n")
+    parser.add_argument("--open", nargs="?", const="__default__", default=None)
+    parser.add_argument("--no-open", action="store_true")
     try:
         ns = parser.parse_args(argv)
     except SystemExit:
@@ -151,6 +189,18 @@ def cmd_new(argv):
         if str(final).startswith(str(DATA_DIR)):
             print("hint: files are stored in plugin data dir")
             print('  set a location: cpt link config set default_dir "D:/CP"')
+
+    if ns.no_open:
+        return 0
+
+    if ns.open is not None:
+        editor = None if ns.open == "__default__" else ns.open
+        _open_with_editor(final, editor, cfg)
+        return 0
+
+    if cfg.get("prompt_after_new") and sys.stdin.isatty():
+        _ask_and_open(final, cfg)
+
     return 0
 
 
@@ -196,13 +246,13 @@ def cmd_open(argv):
 
     if argv[0] in ("--data", "--list"):
         DATA_DIR.mkdir(parents=True, exist_ok=True)
-        open_dir(DATA_DIR)
+        open_folder(DATA_DIR)
         print(f"opened: {DATA_DIR}")
         return 0
 
     if argv[0] == "--config":
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        open_dir(CONFIG_DIR)
+        open_folder(CONFIG_DIR)
         print(f"opened: {CONFIG_DIR}")
         return 0
 
@@ -224,7 +274,7 @@ def cmd_open(argv):
         if not target.is_dir():
             print(f"folder not found: {target}", file=sys.stderr)
             return 1
-        open_dir(target)
+        open_folder(target)
         print(f"opened: {target}")
         return 0
 
@@ -241,8 +291,203 @@ def cmd_open(argv):
         target = resolve_dir(cfg, arg)
 
     target.mkdir(parents=True, exist_ok=True)
-    open_dir(target)
+    open_folder(target)
     print(f"opened: {target}")
+    return 0
+
+
+def _find_problems(pid):
+    return [it for it in load_problems() if it.get("id") == pid]
+
+
+def cmd_open_file(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        print("""usage:
+  cpt link open-file <id>                  open saved file with default editor
+  cpt link open-file <id> --with EDITOR    open with specific editor
+  cpt link open-file <id> --folder         reveal file in file manager
+  cpt link open-file <id> --latest         pick newest entry (default)
+""")
+        return 0 if argv else 2
+
+    parser = argparse.ArgumentParser(add_help=False, prog="cpt link open-file")
+    parser.add_argument("id")
+    parser.add_argument("--with", dest="editor", default=None)
+    parser.add_argument("--folder", action="store_true")
+    try:
+        ns = parser.parse_args(argv)
+    except SystemExit:
+        return 2
+
+    matches = _find_problems(ns.id)
+    if not matches:
+        print(f"no saved problem with id '{ns.id}'", file=sys.stderr)
+        return 1
+
+    item = matches[-1]
+    p = item.get("path")
+    if not p:
+        print(f"problem '{ns.id}' has no path", file=sys.stderr)
+        return 1
+
+    target = Path(p)
+    if not target.is_file():
+        print(f"file not found: {target}", file=sys.stderr)
+        return 1
+
+    if ns.folder:
+        reveal_file(target)
+        print(f"revealed: {target}")
+        return 0
+
+    cfg = load_config()
+    _open_with_editor(target, ns.editor, cfg)
+    print(f"opened: {target}")
+    return 0
+
+
+def cmd_rm(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        print("""usage:
+  cpt link rm <id>                 delete file and store entry
+  cpt link rm <id> -y              skip confirmation
+  cpt link rm <id> --keep-entry    delete file only
+  cpt link rm <id> --all           delete all files with this id
+""")
+        return 0 if argv else 2
+
+    parser = argparse.ArgumentParser(add_help=False, prog="cpt link rm")
+    parser.add_argument("id")
+    parser.add_argument("-y", "--yes", action="store_true")
+    parser.add_argument("--keep-entry", action="store_true")
+    parser.add_argument("--all", action="store_true")
+    try:
+        ns = parser.parse_args(argv)
+    except SystemExit:
+        return 2
+
+    matches = _find_problems(ns.id)
+    if not matches:
+        print(f"no saved problem with id '{ns.id}'", file=sys.stderr)
+        return 1
+
+    targets = matches if ns.all else [matches[-1]]
+
+    if not ns.yes:
+        import questionary
+        names = ", ".join(Path(it.get("path", "")).name for it in targets if it.get("path"))
+        answer = questionary.confirm(f"Delete {len(targets)} file(s)? [{names}]").ask()
+        if not answer:
+            print("aborted")
+            return 0
+
+    deleted = []
+    for it in targets:
+        p = it.get("path")
+        if p:
+            fp = Path(p)
+            if fp.is_file():
+                fp.unlink()
+                deleted.append(str(fp))
+
+    if not ns.keep_entry:
+        remaining = [it for it in load_problems() if it not in targets]
+        save_problems(remaining)
+
+    for d in deleted:
+        print(f"deleted: {d}")
+    return 0
+
+
+def cmd_editors(argv):
+    if not argv or argv[0] in ("list", "-h", "--help"):
+        if argv and argv[0] in ("-h", "--help"):
+            print("usage: editors [list | detect | known | set NAME PATH | unset NAME]")
+            return 0
+        return _editors_list()
+
+    sub = argv[0]
+
+    if sub == "detect":
+        return _editors_detect()
+    if sub == "known":
+        return _editors_known()
+
+    if sub == "set":
+        if len(argv) < 3:
+            print("usage: editors set <name> <path>", file=sys.stderr)
+            return 2
+        cfg = load_config()
+        eds = dict(cfg.get("editors") or {})
+        eds[argv[1]] = argv[2]
+        cfg["editors"] = eds
+        save_config(cfg)
+        print(f"editors.{argv[1]} = {argv[2]}")
+        return 0
+
+    if sub == "unset":
+        if len(argv) < 2:
+            print("usage: editors unset <name>", file=sys.stderr)
+            return 2
+        cfg = load_config()
+        eds = dict(cfg.get("editors") or {})
+        eds.pop(argv[1], None)
+        cfg["editors"] = eds
+        save_config(cfg)
+        return 0
+
+    print(f"unknown: editors {sub}", file=sys.stderr)
+    return 2
+
+
+def _editors_list():
+    from cptools.lib.editor import ordered_keys
+
+    cfg = load_config()
+    editors = get_editors(cfg.get("editors"))
+    default = cfg.get("default_editor") or ""
+    if not editors:
+        print("no editors detected")
+        print()
+        print("Add one manually:")
+        print('  cpt link editors set <name> "<path>"')
+        print()
+        print("Run 'cpt link editors known' for the list of names.")
+        return 0
+    for key in ordered_keys(editors):
+        ed = editors[key]
+        mark = "*" if key == default else " "
+        print(f"{mark} {key:15} {ed.label:20} {ed.exe}")
+    print()
+    print("* = default editor")
+    return 0
+
+
+def _editors_detect():
+    from cptools.lib.editor import detect_editors, known_editors
+
+    detected = detect_editors()
+    user = load_config().get("editors") or {}
+    print("Detected on this system:")
+    if not detected:
+        print("  (none)")
+    for key, *_ in known_editors():
+        if key in detected:
+            print(f"  {key:15} {detected[key].exe}")
+    if user:
+        print()
+        print("User-configured:")
+        for key, exe in user.items():
+            print(f"  {key:15} {exe}")
+    return 0
+
+
+def _editors_known():
+    from cptools.lib.editor import known_editors
+
+    print("Known editor names:")
+    for key, label in known_editors():
+        print(f"  {key:15} {label}")
     return 0
 
 
@@ -406,6 +651,9 @@ usage:
   cpt link list                               list saved problems
   cpt link dir <url>                          show target directory
   cpt link open <url|oj|--data|--config|--problem>   open a directory
+  cpt link open-file <id> [opts]              open a saved file
+  cpt link rm <id> [opts]                     delete file(s) and entry
+  cpt link editors [list|detect|known|set|unset]   manage editors
   cpt link config [show|get|set|unset|reset]  manage settings
   cpt link template [list|add|remove|show]    manage templates
 
@@ -414,6 +662,17 @@ new options:
   -e, --ext EXT          output extension (default: config.default_ext)
   -d, --dir PATH         override target directory
   -n, --name NAME        override file name (default: problem id)
+  --open [EDITOR]        open after creating (optionally pick editor)
+  --no-open              never prompt or open
+
+open-file options:
+  --with EDITOR          open with a specific editor
+  --folder               reveal file in file manager
+
+rm options:
+  -y, --yes              skip confirmation
+  --keep-entry           delete file only, keep store entry
+  --all                  delete every file with this id
 
 config keys:
   default_dir            default directory for known OJs
@@ -421,13 +680,9 @@ config keys:
   oj_dirs.<oj>           per-OJ directory (e.g. oj_dirs.codeforces)
   default_template       default template name
   default_ext            default output extension (e.g. .cpp)
-
-config commands:
-  show                    print current config
-  get KEY                 print one value
-  set KEY VALUE           set a key
-  unset KEY               remove a key
-  reset [-y] [KEY]        reset all (or one) keys to defaults
+  default_editor         default editor (e.g. vscode)
+  editors.<name>         path to editor executable
+  prompt_after_new       prompt to open after new (true/false)
 
 template placeholders:
   $link  ${link}  and similar: $id $oj $name
@@ -474,6 +729,11 @@ HANDLERS = {
     "list": cmd_list,
     "dir": cmd_dir,
     "open": cmd_open,
+    "open-file": cmd_open_file,
+    "rm": cmd_rm,
+    "remove": cmd_rm,
+    "delete": cmd_rm,
+    "editors": cmd_editors,
     "config": cmd_config,
     "template": cmd_template,
 }

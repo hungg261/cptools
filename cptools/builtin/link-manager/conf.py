@@ -18,6 +18,9 @@ DEFAULTS = {
     "oj_dirs": {},
     "default_template": "cpp_default",
     "default_ext": ".cpp",
+    "default_editor": "",
+    "editors": {},
+    "prompt_after_new": True,
 }
 
 

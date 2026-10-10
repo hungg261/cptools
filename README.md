@@ -144,6 +144,7 @@ cpt mp hello
 
 See `PROTOCOL.md` for the full spec.
 See `cptools/builtin/link-manager/` for a complete example.
+Run tests with `python -m pytest` to ensure the correct interpreter.
 
 ## Layout
 
