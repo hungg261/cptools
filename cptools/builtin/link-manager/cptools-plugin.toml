@@ -1,11 +1,15 @@
 [plugin]
 name = "link-manager"
 alias = ["link", "gen"]
-version = "0.1.0"
-description = "Manage problem links"
+version = "0.2.0"
+description = "Manage competitive programming problem links"
 exec = ["python", "main.py"]
 protocol = 1
 
 [commands]
-parse = "Parse a URL and save it"
-list  = "List saved problems"
+parse    = "Parse a URL and show info"
+new      = "Create a source file from a template"
+list     = "List saved problems"
+dir      = "Show target directory for a URL"
+config   = "Manage settings"
+template = "Manage templates"
