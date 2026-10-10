@@ -509,3 +509,85 @@ class TestEditorsCommands:
     def test_unknown_subcommand(self, run_plugin):
         r = run_plugin("editors", "foobar")
         assert r.returncode == 2
+
+class TestUndo:
+    def test_undo_empty(self, run_plugin):
+        r = run_plugin("undo", "-y")
+        assert r.returncode == 1
+        assert "nothing to undo" in r.stderr
+
+    def test_undo_deletes_last(self, run_plugin, plugin_dirs):
+        run_plugin("new", CF_URL, "-d", str(plugin_dirs["work"]))
+        run_plugin("new", ATC_URL, "-d", str(plugin_dirs["work"]))
+
+        r = run_plugin("undo", "-y")
+        assert r.returncode == 0
+
+        # second file gone, first still there
+        assert not list(plugin_dirs["work"].glob("abc300_a*"))
+        assert list(plugin_dirs["work"].glob("1923A*"))
+
+        # store has only first entry
+        r = run_plugin("list", output="json")
+        lines = [l for l in r.stdout.strip().splitlines() if l]
+        assert len(lines) == 1
+        assert "1923A" in lines[0]
+
+    def test_undo_keep_entry(self, run_plugin, plugin_dirs):
+        run_plugin("new", CF_URL, "-d", str(plugin_dirs["work"]))
+        r = run_plugin("undo", "-y", "--keep-entry")
+        assert r.returncode == 0
+
+        # file gone but entry still in store
+        assert not list(plugin_dirs["work"].glob("1923A*"))
+        r = run_plugin("list")
+        assert "1923A" in r.stdout
+
+    def test_undo_prompt_yes(self, run_plugin, plugin_dirs):
+        run_plugin("new", CF_URL, "-d", str(plugin_dirs["work"]))
+        r = run_plugin("undo", input="y\n")
+        assert r.returncode == 0
+        assert not list(plugin_dirs["work"].glob("1923A*"))
+
+    def test_undo_prompt_abort(self, run_plugin, plugin_dirs):
+        run_plugin("new", CF_URL, "-d", str(plugin_dirs["work"]))
+        r = run_plugin("undo", input="n\n")
+        assert r.returncode == 0
+        assert "aborted" in r.stdout
+        assert list(plugin_dirs["work"].glob("1923A*"))
+
+    def test_undo_repeated(self, run_plugin, plugin_dirs):
+        run_plugin("new", CF_URL, "-d", str(plugin_dirs["work"]))
+        run_plugin("new", CF_URL, "-d", str(plugin_dirs["work"]))
+
+        run_plugin("undo", "-y")
+        run_plugin("undo", "-y")
+        r = run_plugin("undo", "-y")
+        assert r.returncode == 1
+
+    def test_undo_help(self, run_plugin):
+        r = run_plugin("undo", "-h")
+        assert r.returncode == 0
+        assert "undo" in r.stdout
+
+
+class TestOpenFileDelete:
+    def test_delete_flag(self, run_plugin, plugin_dirs):
+        run_plugin("new", CF_URL, "-d", str(plugin_dirs["work"]))
+        r = run_plugin("open-file", "1923A", "-D", "-y")
+        assert r.returncode == 0
+        assert not list(plugin_dirs["work"].glob("1923A*"))
+
+        r = run_plugin("list")
+        assert "1923A" not in r.stdout
+
+    def test_delete_prompt_abort(self, run_plugin, plugin_dirs):
+        run_plugin("new", CF_URL, "-d", str(plugin_dirs["work"]))
+        r = run_plugin("open-file", "1923A", "--delete", input="n\n")
+        assert r.returncode == 0
+        assert "aborted" in r.stdout
+        assert list(plugin_dirs["work"].glob("1923A*"))
+
+    def test_delete_unknown_id(self, run_plugin):
+        r = run_plugin("open-file", "nonexistent", "-D", "-y")
+        assert r.returncode == 1
