@@ -1,5 +1,7 @@
 # cptools
 
+[![test](https://github.com/hungg261/cptools/actions/workflows/test.yml/badge.svg)](https://github.com/hungg261/cptools/actions/workflows/test.yml)
+
 CLI manager for competitive programming tools. Discovers and runs plugins
 as subcommands.
 
