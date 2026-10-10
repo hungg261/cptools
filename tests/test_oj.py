@@ -1,47 +1,66 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 PLUGIN_DIR = Path(__file__).parent.parent / "cptools" / "builtin" / "link-manager"
 if str(PLUGIN_DIR) not in sys.path:
     sys.path.insert(0, str(PLUGIN_DIR))
 
-from oj import parse, oj_names, Codeforces, AtCoder  # noqa: E402
+from oj import parse, oj_names  # noqa: E402
 
 
-class TestCodeforces:
-    def test_contest_url(self):
-        obj = parse("https://codeforces.com/contest/1923/problem/A")
-        assert obj is not None
-        assert obj.name == "codeforces"
-        assert obj.id == "1923A"
+COMMON_CASES = [
+    # (url, oj_name, expected_id)
+    ("https://codeforces.com/contest/1923/problem/A", "codeforces", "1923A"),
+    ("http://codeforces.com/contest/1923/problem/A", "codeforces", "1923A"),
+    ("https://codeforces.com/contest/1923/problem/A/", "codeforces", "1923A"),
+    ("https://codeforces.com/problemset/problem/1923/A", "codeforces", "1923A"),
+    ("https://codeforces.com/gym/123456/problem/B", "codeforces", "Gym_123456B"),
+    ("https://codeforces.com/group/abc123/contest/100/problem/C", "codeforces", "Group_abc123_100C"),
+    ("https://atcoder.jp/contests/abc300/tasks/abc300_a", "atcoder", "abc300_a"),
+    ("https://atcoder.jp/contests/abc300/tasks/abc300_a/", "atcoder", "abc300_a"),
+    ("https://www.codechef.com/problems/FLOW001", "codechef", "FLOW001"),
+    ("https://codechef.com/problems/HELLO_WORLD", "codechef", "HELLO_WORLD"),
+    ("https://cses.fi/problemset/task/1068", "cses", "1068"),
+    ("https://open.kattis.com/problems/fizzbuzz", "kattis", "fizzbuzz"),
+    ("https://open.kattis.com/problems/some-problem/", "kattis", "some-problem"),
+    ("https://leetcode.com/problems/two-sum", "leetcode", "two-sum"),
+    ("https://leetcode.com/problems/two-sum/", "leetcode", "two-sum"),
+    ("https://leetcode.com/problems/two-sum/description/", "leetcode", "two-sum"),
+    ("https://lqdoj.edu.vn/problem/abc123", "lqdoj", "abc123"),
+    ("https://marisaoj.com/problem/123", "marisaoj", "123"),
+    ("https://nloj.org/problems/42", "nloj", "42"),
+    ("https://oj.uz/problem/view/ioi15_boxes", "ojuz", "ioi15_boxes"),
+    ("https://www.spoj.com/problems/TEST/", "spoj", "TEST"),
+    ("https://spoj.com/problems/FCTRL", "spoj", "FCTRL"),
+    ("https://oj.vnoi.info/problem/nktick", "vnoj", "nktick"),
+    ("https://judge.yosupo.jp/problem/aplusb", "yosupo", "aplusb"),
+    ("https://judge.yosupo.jp/problem/static_range_sum", "yosupo", "static_range_sum"),
+    ("https://www.acmicpc.net/problem/1000", "baekjoon", "1000"),
+    ("https://boj.kr/problem/1000", "baekjoon", "1000"),
+    ("https://dmoj.ca/problem/aplusb", "dmoj", "aplusb"),
+    ("https://www.hackerrank.com/challenges/solve-me-first", "hackerrank", "solve-me-first"),
+    ("https://www.hackerearth.com/problem/algorithm/hello-world", "hackerearth", "hello-world"),
+    ("https://onlinejudge.org/index.php?option=com_onlinejudge&Itemid=8&page=show_problem&problem=100", "uva", "100"),
+    ("https://onlinejudge.org/problem/100", "uva", "100"),
+    ("https://acm.timus.ru/problem.aspx?space=1&num=1000", "timus", "1000"),
+    ("https://acm.timus.ru/problem.aspx?num=1000", "timus", "1000"),
+    ("https://onlinejudge.u-aizu.ac.jp/problems/0000", "aizu", "0000"),
+    ("https://judge.u-aizu.ac.jp/onlinejudge/review.jsp?id=12345", "aizu", "12345"),
+    ("http://poj.org/problem?id=1000", "poj", "1000"),
+    ("https://eolymp.com/problems/1", "eolymp", "1"),
+    ("https://lightoj.com/problem/discovering-permutations", "lightoj", "discovering-permutations"),
+    ("https://toph.co/problem/hello-world", "toph", "hello-world"),
+]
 
-    def test_problemset_url(self):
-        obj = parse("https://codeforces.com/problemset/problem/1923/A")
-        assert obj is not None
-        assert obj.id == "1923A"
 
-    def test_gym_url(self):
-        obj = parse("https://codeforces.com/gym/123456/problem/B")
-        assert obj is not None
-        assert obj.id == "123456B"
-
-    def test_trailing_slash(self):
-        obj = parse("https://codeforces.com/contest/1923/problem/A/")
-        assert obj is not None
-        assert obj.id == "1923A"
-
-    def test_subproblem(self):
-        obj = parse("https://codeforces.com/contest/1923/problem/A1")
-        assert obj is not None
-        assert obj.id == "1923A1"
-
-
-class TestAtCoder:
-    def test_basic(self):
-        obj = parse("https://atcoder.jp/contests/abc300/tasks/abc300_a")
-        assert obj is not None
-        assert obj.name == "atcoder"
-        assert obj.id == "abc300_a"
+@pytest.mark.parametrize("url, oj_name, expected_id", COMMON_CASES)
+def test_parse_common(url, oj_name, expected_id):
+    obj = parse(url)
+    assert obj is not None, f"failed to parse: {url}"
+    assert obj.name == oj_name, f"wrong oj for {url}: {obj.name} != {oj_name}"
+    assert obj.id == expected_id, f"wrong id for {url}: {obj.id} != {expected_id}"
 
 
 class TestEdgeCases:
@@ -51,17 +70,57 @@ class TestEdgeCases:
     def test_empty_string(self):
         assert parse("") is None
 
-    def test_oj_names(self):
+    def test_whitespace_stripped(self):
+        obj = parse("  https://codeforces.com/contest/1923/problem/A  ")
+        assert obj is not None
+        assert obj.id == "1923A"
+
+    def test_fragment_stripped(self):
+        obj = parse("https://codeforces.com/contest/1923/problem/A#section")
+        assert obj is not None
+        assert obj.id == "1923A"
+
+
+class TestOjNames:
+    def test_all_expected_present(self):
         names = oj_names()
-        assert "codeforces" in names
-        assert "atcoder" in names
+        expected = {
+            "codeforces", "atcoder", "codechef", "cses", "kattis",
+            "leetcode", "lqdoj", "marisaoj", "nloj", "ojuz", "spoj",
+            "vnoj", "yosupo", "baekjoon", "dmoj", "hackerrank",
+            "hackerearth", "uva", "timus", "aizu", "poj", "eolymp",
+            "lightoj", "toph",
+        }
+        assert expected.issubset(set(names))
+
+    def test_no_duplicates(self):
+        names = oj_names()
+        assert len(names) == len(set(names))
 
 
-class TestDirectClass:
-    def test_codeforces_class(self):
-        obj = Codeforces.try_parse("https://codeforces.com/contest/100/problem/Z")
-        assert obj.id == "100Z"
+class TestCodeforcesVariants:
+    def test_contest(self):
+        obj = parse("https://codeforces.com/contest/100/problem/A1")
+        assert obj.id == "100A1"
 
-    def test_atcoder_class(self):
-        obj = AtCoder.try_parse("https://atcoder.jp/contests/abc001/tasks/abc001_a")
+    def test_group(self):
+        obj = parse("https://codeforces.com/group/xyz/contest/50/problem/B")
+        assert obj.id == "Group_xyz_50B"
+
+    def test_gym(self):
+        obj = parse("https://codeforces.com/gym/999999/problem/Z")
+        assert obj.id == "Gym_999999Z"
+
+    def test_problemset(self):
+        obj = parse("https://codeforces.com/problemset/problem/4/A")
+        assert obj.id == "4A"
+
+
+class TestAtCoderVariants:
+    def test_abc(self):
+        obj = parse("https://atcoder.jp/contests/abc001/tasks/abc001_a")
         assert obj.id == "abc001_a"
+
+    def test_arc(self):
+        obj = parse("https://atcoder.jp/contests/arc100/tasks/arc100_a")
+        assert obj.id == "arc100_a"

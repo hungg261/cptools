@@ -23,7 +23,7 @@ def plugin_dirs(tmp_path):
 
 @pytest.fixture
 def run_plugin(plugin_dirs):
-    def _run(*args, output="human"):
+    def _run(*args, output="human", input=""):
         env = os.environ.copy()
         env["CPTOOLS_PLUGIN_NAME"] = "link-manager"
         env["CPTOOLS_INVOKED_AS"] = "link"
@@ -38,5 +38,6 @@ def run_plugin(plugin_dirs):
             env=env,
             capture_output=True,
             text=True,
+            input=input,
         )
     return _run

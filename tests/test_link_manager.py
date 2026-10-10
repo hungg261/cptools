@@ -367,3 +367,60 @@ class TestExt:
         )
         assert r.returncode == 0
         assert (plugin_dirs["work"] / "1923A.rs").exists()
+
+class TestConfigReset:
+    def test_reset_all_with_y(self, run_plugin):
+        run_plugin("config", "set", "default_dir", "D:/X")
+        run_plugin("config", "set", "default_ext", ".py")
+        r = run_plugin("config", "reset", "-y")
+        assert r.returncode == 0
+        assert "reset" in r.stdout
+
+        r = run_plugin("config")
+        cfg = json.loads(r.stdout)
+        assert cfg["default_dir"] == ""
+        assert cfg["default_ext"] == ".cpp"
+
+    def test_reset_all_prompt_yes(self, run_plugin):
+        run_plugin("config", "set", "default_dir", "D:/X")
+        r = run_plugin("config", "reset", input="y\n")
+        assert r.returncode == 0
+        r = run_plugin("config", "get", "default_dir")
+        assert r.stdout.strip() == ""
+
+    def test_reset_all_prompt_abort(self, run_plugin):
+        run_plugin("config", "set", "default_dir", "D:/X")
+        r = run_plugin("config", "reset", input="n\n")
+        assert r.returncode == 0
+        assert "aborted" in r.stdout
+        r = run_plugin("config", "get", "default_dir")
+        assert r.stdout.strip() == "D:/X"
+
+    def test_reset_single_key(self, run_plugin):
+        run_plugin("config", "set", "default_dir", "D:/X")
+        run_plugin("config", "set", "default_ext", ".py")
+        r = run_plugin("config", "reset", "default_dir")
+        assert r.returncode == 0
+        r = run_plugin("config", "get", "default_dir")
+        assert r.stdout.strip() == ""
+        r = run_plugin("config", "get", "default_ext")
+        assert r.stdout.strip() == ".py"
+
+    def test_reset_oj_dir(self, run_plugin):
+        run_plugin("config", "set", "oj_dirs.codeforces", "D:/CF")
+        r = run_plugin("config", "reset", "oj_dirs.codeforces")
+        assert r.returncode == 0
+        r = run_plugin("config", "get", "oj_dirs.codeforces")
+        assert r.returncode == 1
+
+    def test_reset_unknown_key(self, run_plugin):
+        r = run_plugin("config", "reset", "nonexistent_key")
+        assert r.returncode == 0
+
+    def test_reset_all_clears_oj_dirs(self, run_plugin):
+        run_plugin("config", "set", "oj_dirs.codeforces", "D:/CF")
+        run_plugin("config", "set", "oj_dirs.atcoder", "D:/ATC")
+        run_plugin("config", "reset", "-y")
+        r = run_plugin("config")
+        cfg = json.loads(r.stdout)
+        assert cfg["oj_dirs"] == {}

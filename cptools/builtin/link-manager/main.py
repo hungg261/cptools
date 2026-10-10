@@ -9,7 +9,7 @@ from pathlib import Path
 
 from oj import parse as parse_url, oj_names
 from conf import (
-    DATA_DIR, CONFIG_DIR, TEMPLATES_DIR,
+    DATA_DIR, CONFIG_DIR, TEMPLATES_DIR, DEFAULTS,
     load_config, save_config, resolve_dir, expand,
     list_templates, find_template, render_template,
 )
@@ -251,7 +251,7 @@ def cmd_config(argv):
 
     if not argv or argv[0] in ("show", "-h", "--help"):
         if argv and argv[0] in ("-h", "--help"):
-            print("usage: config [show | get KEY | set KEY VALUE | unset KEY]")
+            print("usage: config [show | get KEY | set KEY VALUE | unset KEY | reset [-y] [KEY]]")
             return 0
         print(json.dumps(cfg, indent=2, ensure_ascii=False))
         return 0
@@ -288,8 +288,48 @@ def cmd_config(argv):
         save_config(cfg)
         return 0
 
+    if sub == "reset":
+        return _config_reset(cfg, argv[1:])
+
     print(f"unknown: config {sub}", file=sys.stderr)
     return 2
+
+
+def _config_reset(cfg, args):
+    yes = False
+    key = None
+    for a in args:
+        if a in ("-y", "--yes"):
+            yes = True
+        elif key is None:
+            key = a
+        else:
+            print(f"unexpected arg: {a}", file=sys.stderr)
+            return 2
+
+    if key:
+        if key in DEFAULTS:
+            cfg_set(cfg, key, DEFAULTS[key])
+        else:
+            cfg_unset(cfg, key)
+        save_config(cfg)
+        print(f"reset: {key}")
+        return 0
+
+    if not yes:
+        print("This will reset all settings to defaults.")
+        try:
+            answer = input("Continue? [y/N] ").strip().lower()
+        except EOFError:
+            print("aborted")
+            return 0
+        if answer not in ("y", "yes"):
+            print("aborted")
+            return 0
+
+    save_config(dict(DEFAULTS))
+    print("settings reset to defaults")
+    return 0
 
 
 def cmd_template(argv):
@@ -365,7 +405,7 @@ usage:
   cpt link list                               list saved problems
   cpt link dir <url>                          show target directory
   cpt link open <url|oj|--data|--config|--problem>   open a directory
-  cpt link config [show|get|set|unset]        manage settings
+  cpt link config [show|get|set|unset|reset]  manage settings
   cpt link template [list|add|remove|show]    manage templates
 
 new options:
@@ -381,11 +421,12 @@ config keys:
   default_template       default template name
   default_ext            default output extension (e.g. .cpp)
 
-config keys:
-  default_dir            default directory for known OJs
-  fallback_dir           directory for unknown OJs
-  oj_dirs.<oj>           per-OJ directory (e.g. oj_dirs.codeforces)
-  default_template       default template name
+config commands:
+  show                    print current config
+  get KEY                 print one value
+  set KEY VALUE           set a key
+  unset KEY               remove a key
+  reset [-y] [KEY]        reset all (or one) keys to defaults
 
 template placeholders:
   ${link} ${id} ${oj} ${name} ${date} ${time} ${datetime} ${timestamp}
