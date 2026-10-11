@@ -10,7 +10,7 @@ from tkinter.scrolledtext import ScrolledText
 
 from compile import compile_source, default_output, find_compiler, is_stale
 from run import run_binary, compare
-from store import load, save, add_test, remove_test
+from store import DEFAULT_IO, load, save, add_test, remove_test, work_root_for
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -52,6 +52,9 @@ BORDER = "#d0d0d0"
 BORDER_FOCUS = "#0078d4"
 FG_MUTED = "#666666"
 
+BG_DISABLED = "#ececec"
+BG_NORMAL = "#ffffff"
+
 PASS_FG = "#1f7a1f"
 FAIL_FG = "#c02020"
 TIMEOUT_FG = "#b06000"
@@ -81,6 +84,13 @@ def _set_readonly(widget, text):
     widget.configure(state="disabled")
 
 
+def _set_editor_enabled(widget, enabled):
+    if enabled:
+        widget.configure(state="normal", background=BG_NORMAL)
+    else:
+        widget.configure(state="disabled", background=BG_DISABLED)
+
+
 def _copy_to_clipboard(widget, app):
     content = widget.get("1.0", "end-1c")
     if not content:
@@ -105,6 +115,7 @@ class SessionTab(ttk.Frame):
         self.queue = queue.Queue()
         self._save_timer = None
         self._suppress_change = False
+        self._suppress_io = False
         self.test_outputs = {}
 
         self._build_ui()
@@ -193,16 +204,60 @@ class SessionTab(ttk.Frame):
         self._build_source_tab()
 
     def _build_io_tab(self):
-        io = ttk.Frame(self.inner, padding=3)
+        io = ttk.Frame(self.inner, padding=4)
         self.inner.add(io, text="I/O")
 
         io.columnconfigure(0, weight=1)
-        io.rowconfigure(1, weight=2)
-        io.rowconfigure(3, weight=2)
-        io.rowconfigure(5, weight=3)
+        io.rowconfigure(2, weight=2)
+        io.rowconfigure(4, weight=2)
+        io.rowconfigure(6, weight=3)
+
+        mode_box = ttk.LabelFrame(io, text=" I/O mode ", padding=(6, 4))
+        mode_box.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        mode_box.columnconfigure(2, weight=1)
+
+        ttk.Label(mode_box, text="Input", font=UI, anchor="w", width=7).grid(
+            row=0, column=0, sticky="w", pady=(0, 2)
+        )
+
+        self.input_mode_var = tk.StringVar(value="stdin")
+        in_cb = ttk.Combobox(
+            mode_box, textvariable=self.input_mode_var,
+            values=["stdin", "file"], width=8,
+            state="readonly", font=UI,
+        )
+        in_cb.grid(row=0, column=1, padx=(6, 6), pady=(0, 2))
+        in_cb.bind("<<ComboboxSelected>>", self._on_io_change)
+
+        self.input_file_var = tk.StringVar(value="input.txt")
+        self.input_file_entry = ttk.Entry(
+            mode_box, textvariable=self.input_file_var, font=UI,
+        )
+        self.input_file_entry.grid(row=0, column=2, sticky="ew", pady=(0, 2))
+        self.input_file_var.trace_add("write", self._on_io_change)
+
+        ttk.Label(mode_box, text="Output", font=UI, anchor="w", width=7).grid(
+            row=1, column=0, sticky="w"
+        )
+
+        self.output_mode_var = tk.StringVar(value="stdout")
+        out_cb = ttk.Combobox(
+            mode_box, textvariable=self.output_mode_var,
+            values=["stdout", "file"], width=8,
+            state="readonly", font=UI,
+        )
+        out_cb.grid(row=1, column=1, padx=(6, 6))
+        out_cb.bind("<<ComboboxSelected>>", self._on_io_change)
+
+        self.output_file_var = tk.StringVar(value="output.txt")
+        self.output_file_entry = ttk.Entry(
+            mode_box, textvariable=self.output_file_var, font=UI,
+        )
+        self.output_file_entry.grid(row=1, column=2, sticky="ew")
+        self.output_file_var.trace_add("write", self._on_io_change)
 
         h1 = ttk.Frame(io)
-        h1.grid(row=0, column=0, sticky="ew")
+        h1.grid(row=1, column=0, sticky="ew")
         ttk.Label(h1, text="Input", font=UI_BOLD).pack(side="left")
         ttk.Button(h1, text="Load", width=5,
                    command=lambda: self._load_into(self.input_text)
@@ -212,10 +267,10 @@ class SessionTab(ttk.Frame):
                    ).pack(side="right", padx=2)
 
         self.input_text = self._mk_text(io, height=4)
-        self.input_text.grid(row=1, column=0, sticky="nsew", pady=(1, 3))
+        self.input_text.grid(row=2, column=0, sticky="nsew", pady=(1, 4))
 
         h2 = ttk.Frame(io)
-        h2.grid(row=2, column=0, sticky="ew")
+        h2.grid(row=3, column=0, sticky="ew")
         ttk.Label(h2, text="Expected", font=UI_BOLD).pack(side="left")
         ttk.Button(h2, text="Load", width=5,
                    command=lambda: self._load_into(self.expected_text)
@@ -225,10 +280,10 @@ class SessionTab(ttk.Frame):
                    ).pack(side="right", padx=2)
 
         self.expected_text = self._mk_text(io, height=4)
-        self.expected_text.grid(row=3, column=0, sticky="nsew", pady=(1, 3))
+        self.expected_text.grid(row=4, column=0, sticky="nsew", pady=(1, 4))
 
         h3 = ttk.Frame(io)
-        h3.grid(row=4, column=0, sticky="ew")
+        h3.grid(row=5, column=0, sticky="ew")
         ttk.Label(h3, text="Output", font=UI_BOLD).pack(side="left")
         self.match_label = ttk.Label(h3, text="", font=UI_SMALL, foreground=FG_MUTED)
         self.match_label.pack(side="left", padx=(6, 0))
@@ -241,7 +296,7 @@ class SessionTab(ttk.Frame):
                    ).pack(side="right", padx=2)
 
         self.got_text = self._mk_text(io, height=5, readonly=True)
-        self.got_text.grid(row=5, column=0, sticky="nsew", pady=(1, 0))
+        self.got_text.grid(row=6, column=0, sticky="nsew", pady=(1, 0))
 
     def _build_source_tab(self):
         src = ttk.Frame(self.inner, padding=3)
@@ -265,7 +320,7 @@ class SessionTab(ttk.Frame):
             undo=not readonly, maxundo=200,
             borderwidth=0, highlightthickness=1,
             highlightbackground=BORDER, highlightcolor=BORDER_FOCUS,
-            background="white" if not readonly else "#f6f6f6",
+            background=BG_NORMAL if not readonly else "#f6f6f6",
             padx=4, pady=3,
         )
         if readonly:
@@ -273,6 +328,42 @@ class SessionTab(ttk.Frame):
         else:
             t.bind("<<Modified>>", self._on_editor_change)
         return t
+
+    # -------------------------------------------------------- io mode
+
+    def _on_io_change(self, *_):
+        if self._suppress_io or not self.tests_data:
+            self._update_io_entry_state()
+            return
+        self.tests_data["io"] = {
+            "input": self.input_mode_var.get(),
+            "output": self.output_mode_var.get(),
+            "input_file": self.input_file_var.get().strip() or "input.txt",
+            "output_file": self.output_file_var.get().strip() or "output.txt",
+        }
+        save(self.tests_data)
+        self._update_io_entry_state()
+
+    def _update_io_entry_state(self):
+        in_state = "normal" if self.input_mode_var.get() == "file" else "disabled"
+        out_state = "normal" if self.output_mode_var.get() == "file" else "disabled"
+        try:
+            self.input_file_entry.configure(state=in_state)
+            self.output_file_entry.configure(state=out_state)
+        except tk.TclError:
+            pass
+
+    def _load_io_config(self):
+        self._suppress_io = True
+        try:
+            io = (self.tests_data or {}).get("io") or dict(DEFAULT_IO)
+            self.input_mode_var.set(io.get("input", "stdin"))
+            self.output_mode_var.set(io.get("output", "stdout"))
+            self.input_file_var.set(io.get("input_file", "input.txt"))
+            self.output_file_var.set(io.get("output_file", "output.txt"))
+        finally:
+            self._suppress_io = False
+        self._update_io_entry_state()
 
     # -------------------------------------------------------- dnd
 
@@ -335,6 +426,7 @@ class SessionTab(ttk.Frame):
             self.binary = None
 
         self.test_outputs = {}
+        self._load_io_config()
         self._refresh_tree()
         self._clear_editors()
         self._clear_output()
@@ -390,6 +482,14 @@ class SessionTab(ttk.Frame):
             i = max(0, min(select_index, len(self.tests_data["tests"]) - 1))
             self.tree.selection_set(str(self.tests_data["tests"][i]["id"]))
 
+    def _disable_editors(self):
+        _set_editor_enabled(self.input_text, False)
+        _set_editor_enabled(self.expected_text, False)
+
+    def _enable_editors(self):
+        _set_editor_enabled(self.input_text, True)
+        _set_editor_enabled(self.expected_text, True)
+
     def _clear_editors(self):
         self._suppress_change = True
         try:
@@ -397,9 +497,10 @@ class SessionTab(ttk.Frame):
                 w.configure(state="normal")
                 w.delete("1.0", "end")
                 w.edit_modified(False)
+            self._disable_editors()
         finally:
             self._suppress_change = False
-        self.match_label.configure(text="")
+        self.match_label.configure(text="no test selected")
         self.current_test_id = None
 
     def _clear_output(self):
@@ -416,17 +517,26 @@ class SessionTab(ttk.Frame):
         n = len(sel)
 
         if n == 0:
+            self._suppress_change = True
+            try:
+                for w in (self.input_text, self.expected_text):
+                    w.configure(state="normal")
+                    w.delete("1.0", "end")
+                    w.edit_modified(False)
+                self._disable_editors()
+            finally:
+                self._suppress_change = False
+            self.current_test_id = None
+            self.match_label.configure(text="no test selected")
             return
 
         if n > 1:
             self.current_test_id = None
-            self.input_text.configure(state="disabled")
-            self.expected_text.configure(state="disabled")
+            self._disable_editors()
             self.match_label.configure(text=f"{n} selected")
             return
 
-        self.input_text.configure(state="normal")
-        self.expected_text.configure(state="normal")
+        self._enable_editors()
 
         tid = int(sel[0])
         t = next((x for x in self.tests_data["tests"] if x["id"] == tid), None)
@@ -455,7 +565,8 @@ class SessionTab(ttk.Frame):
             else:
                 self.match_label.configure(text="FAIL")
         else:
-            self._clear_output()
+            _set_readonly(self.got_text, "")
+            self.match_label.configure(text="")
 
     def _on_editor_change(self, event=None):
         if self._suppress_change:
@@ -532,17 +643,7 @@ class SessionTab(ttk.Frame):
             t["id"] = i
         save(self.tests_data)
 
-        for tid in ids:
-            self.test_outputs.pop(tid, None)
-        self.test_outputs = {
-            new_id: old
-            for new_id, old in zip(
-                (t["id"] for t in self.tests_data["tests"]),
-                self.test_outputs.values(),
-            )
-        }
         self.test_outputs = {}
-
         self._refresh_tree(select_index=first_idx)
         if self.tests_data["tests"]:
             self._on_test_select()
@@ -552,6 +653,7 @@ class SessionTab(ttk.Frame):
 
     def _load_into(self, text_widget):
         if str(text_widget.cget("state")) == "disabled":
+            self.app.set_status("select a test first")
             return
         p = filedialog.askopenfilename(
             parent=self,
@@ -570,6 +672,7 @@ class SessionTab(ttk.Frame):
 
     def _clear(self, text_widget):
         if str(text_widget.cget("state")) == "disabled":
+            self.app.set_status("select a test first")
             return
         if text_widget.get("1.0", "end-1c").strip():
             if not messagebox.askyesno("Clear", "Clear this field?", parent=self):
@@ -716,6 +819,11 @@ class SessionTab(ttk.Frame):
 
         self._run_async(work, done)
 
+    def _current_io(self):
+        if not self.tests_data:
+            return dict(DEFAULT_IO)
+        return dict(self.tests_data.get("io") or DEFAULT_IO)
+
     def _run_all(self):
         if not self.tests_data:
             self.app.set_status("select a source first")
@@ -731,6 +839,8 @@ class SessionTab(ttk.Frame):
 
         tests = [dict(t) for t in self.tests_data["tests"]]
         total = len(tests)
+        io_mode = self._current_io()
+        work_root = work_root_for(self.source)
         self.app.set_status(f"building & running {total} test(s)...")
 
         def work():
@@ -739,7 +849,13 @@ class SessionTab(ttk.Frame):
                 return {"error": err}
             results = []
             for t in tests:
-                r = run_binary(b, t["input"], timeout=int(self.cfg.get("timeout", 5)))
+                wd = work_root / f"test_{t['id']}"
+                r = run_binary(
+                    b, t["input"],
+                    timeout=int(self.cfg.get("timeout", 5)),
+                    work_dir=wd,
+                    io_mode=io_mode,
+                )
                 ok = r["ok"] and compare(r["stdout"], t["expected"])
                 results.append({
                     "id": t["id"],
@@ -808,8 +924,8 @@ class RunnerApp:
         self.tabs = []
 
         self.root.title("CP Runner")
-        self.root.geometry("500x600")
-        self.root.minsize(420, 440)
+        self.root.geometry("520x640")
+        self.root.minsize(440, 480)
 
         self._setup_style()
         self._build_ui()
@@ -835,6 +951,8 @@ class RunnerApp:
         style.configure("TButton", font=UI, padding=(4, 3))
         style.configure("TEntry", font=UI, padding=3)
         style.configure("TLabel", font=UI)
+        style.configure("TLabelframe", font=UI)
+        style.configure("TLabelframe.Label", font=UI_SMALL, foreground=FG_MUTED)
         style.configure("TNotebook", padding=0)
         style.configure("TNotebook.Tab", font=UI, padding=(10, 5))
         style.configure("Treeview", font=UI, rowheight=21)
@@ -897,10 +1015,12 @@ class RunnerApp:
             return
         focused = self.root.focus_get()
         if focused == tab.input_text:
-            tab.expected_text.focus_set()
+            if str(tab.expected_text.cget("state")) != "disabled":
+                tab.expected_text.focus_set()
             return "break"
         if focused == tab.expected_text:
-            tab.input_text.focus_set()
+            if str(tab.input_text.cget("state")) != "disabled":
+                tab.input_text.focus_set()
             return "break"
 
     # -------------------------------------------------- tabs

@@ -6,6 +6,13 @@ from pathlib import Path
 DATA_DIR = Path(os.environ["CPTOOLS_PLUGIN_DATA_DIR"])
 TESTS_DIR = DATA_DIR / "tests"
 
+DEFAULT_IO = {
+    "input": "stdin",
+    "output": "stdout",
+    "input_file": "input.txt",
+    "output_file": "output.txt",
+}
+
 
 def _key(source_path):
     p = str(Path(source_path).resolve())
@@ -20,13 +27,16 @@ def load(source_path):
     f = _file_for(source_path)
     resolved = str(Path(source_path).resolve())
     if not f.exists():
-        return {"source": resolved, "tests": []}
+        return {"source": resolved, "tests": [], "io": dict(DEFAULT_IO)}
     try:
         data = json.loads(f.read_text(encoding="utf-8"))
     except Exception:
-        return {"source": resolved, "tests": []}
+        return {"source": resolved, "tests": [], "io": dict(DEFAULT_IO)}
     data.setdefault("source", resolved)
     data.setdefault("tests", [])
+    io = dict(DEFAULT_IO)
+    io.update(data.get("io") or {})
+    data["io"] = io
     return data
 
 
@@ -52,13 +62,9 @@ def remove_test(data, test_id):
     data["tests"] = [t for t in tests if t.get("id") != test_id]
     if len(data["tests"]) == before:
         return False
-    _renumber(data)
-    return True
-
-
-def _renumber(data):
-    for i, t in enumerate(data.get("tests", []), start=1):
+    for i, t in enumerate(data["tests"], start=1):
         t["id"] = i
+    return True
 
 
 def find_test(data, test_id):
@@ -66,3 +72,10 @@ def find_test(data, test_id):
         if t.get("id") == test_id:
             return t
     return None
+
+
+def work_root_for(source_path):
+    p = str(Path(source_path).resolve())
+    h = hashlib.sha1(p.encode("utf-8")).hexdigest()[:8]
+    stem = Path(source_path).stem
+    return Path(os.environ["CPTOOLS_PLUGIN_CACHE_DIR"]) / "run" / f"{stem}_{h}"

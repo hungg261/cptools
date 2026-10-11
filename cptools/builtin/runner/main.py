@@ -6,7 +6,7 @@ from pathlib import Path
 
 from compile import compile_source, default_output, find_compiler, is_stale
 from run import run_binary, compare
-from store import load, save, add_test, remove_test, find_test
+from store import load, save, add_test, remove_test, find_test, work_root_for
 
 CONFIG_DIR = Path(os.environ["CPTOOLS_PLUGIN_CONFIG_DIR"])
 DATA_DIR = Path(os.environ["CPTOOLS_PLUGIN_DATA_DIR"])
@@ -37,7 +37,7 @@ def load_config():
             data = {}
     cfg = dict(DEFAULTS)
     for k, v in data.items():
-        if k == "timeout" or k == "compile_timeout":
+        if k in ("timeout", "compile_timeout"):
             try:
                 cfg[k] = int(v)
             except (TypeError, ValueError):
@@ -111,7 +111,11 @@ def cmd_build(argv):
         print(f"source not found: {source}", file=sys.stderr)
         return 1
 
-    output = Path(ns.output).expanduser().resolve() if ns.output else default_output(source, _bin_dir(cfg))
+    output = (
+        Path(ns.output).expanduser().resolve()
+        if ns.output
+        else default_output(source, _bin_dir(cfg))
+    )
     compiler = cfg.get("compiler") or "g++"
 
     result = compile_source(
@@ -162,9 +166,12 @@ def cmd_run(argv):
             print(f"cannot read input: {e}", file=sys.stderr)
             return 1
 
+    wd = work_root_for(prep["source"]) / "adhoc"
+
     result = run_binary(
         prep["binary"], input_text,
         timeout=int(cfg.get("timeout", 5)),
+        work_dir=wd,
     )
 
     if AS_JSON:
@@ -238,10 +245,19 @@ def _test_run(argv):
             print(err["build"]["stderr"], file=sys.stderr)
         return 1
 
+    io_mode = data.get("io")
+    work_root = work_root_for(prep["source"])
+
     results = []
     passed = 0
     for t in tests:
-        r = run_binary(prep["binary"], t["input"], timeout=int(cfg.get("timeout", 5)))
+        wd = work_root / f"test_{t['id']}"
+        r = run_binary(
+            prep["binary"], t["input"],
+            timeout=int(cfg.get("timeout", 5)),
+            work_dir=wd,
+            io_mode=io_mode,
+        )
         got = r["stdout"]
         ok = r["ok"] and compare(got, t["expected"])
         if ok:
