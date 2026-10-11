@@ -211,41 +211,94 @@ class Toph(BaseOJ):
     ]
 
 
-OJS = [
-    Codeforces,
-    AtCoder,
-    CodeChef,
-    CSES,
-    Kattis,
-    LeetCode,
-    LQDOJ,
-    MarisaOJ,
-    NLOJ,
-    ojuz,
-    SPOJ,
-    VNOJ,
-    Yosupo,
-    Baekjoon,
-    DMOJ,
-    HackerRank,
-    HackerEarth,
-    UVa,
-    Timus,
-    Aizu,
-    POJ,
-    Eolymp,
-    LightOJ,
-    Toph,
+BUILTIN_OJS = [
+    Codeforces, AtCoder, CodeChef, CSES, Kattis, LeetCode,
+    LQDOJ, MarisaOJ, NLOJ, ojuz, SPOJ, VNOJ, Yosupo,
+    Baekjoon, DMOJ, HackerRank, HackerEarth, UVa, Timus,
+    Aizu, POJ, Eolymp, LightOJ, Toph,
 ]
 
 
-def parse(link):
-    for cls in OJS:
+_NAME_RE = re.compile(r"^[a-z][a-z0-9_\-]*$")
+
+
+def make_custom_oj(name, pattern_strings, id_template=None):
+    if not name or not _NAME_RE.match(name):
+        raise ValueError(
+            "name must be lowercase, start with a letter, "
+            "and contain only [a-z0-9_-]"
+        )
+
+    for cls in BUILTIN_OJS:
+        if cls.name == name:
+            raise ValueError(f"'{name}' is a builtin OJ")
+
+    patterns = []
+    for p in pattern_strings:
+        try:
+            patterns.append(re.compile(p))
+        except re.error as e:
+            raise ValueError(f"invalid regex '{p}': {e}")
+
+    if not patterns:
+        raise ValueError("at least one pattern required")
+
+    group_names = set()
+    for pat in patterns:
+        group_names.update(pat.groupindex.keys())
+
+    if "pid" not in group_names and not id_template:
+        raise ValueError("pattern must define a 'pid' group (or set id_template)")
+
+    if id_template:
+        for ph in re.findall(r"\{(\w+)\}", id_template):
+            if ph not in group_names:
+                raise ValueError(f"id_template references unknown group '{ph}'")
+
+    def build_id(self, m):
+        if id_template:
+            result = id_template
+            for k, v in m.groupdict().items():
+                if v is not None:
+                    result = result.replace("{" + k + "}", v)
+            return result
+        return m.group("pid")
+
+    return type(
+        f"CustomOJ_{name}",
+        (BaseOJ,),
+        {
+            "name": name,
+            "patterns": patterns,
+            "build_id": build_id,
+        },
+    )
+
+
+def parse(link, extra_classes=None):
+    classes = list(BUILTIN_OJS)
+    if extra_classes:
+        classes.extend(extra_classes)
+    for cls in classes:
         obj = cls.try_parse(link)
         if obj:
             return obj
     return None
 
 
-def oj_names():
-    return [cls.name for cls in OJS]
+def oj_names(extra_classes=None):
+    names = [cls.name for cls in BUILTIN_OJS]
+    if extra_classes:
+        names.extend(cls.name for cls in extra_classes)
+    return names
+
+
+def find_oj(name, extra_classes=None):
+    for cls in BUILTIN_OJS:
+        if cls.name == name:
+            return cls
+    if extra_classes:
+        for cls in extra_classes:
+            if cls.name == name:
+                return cls
+    return None

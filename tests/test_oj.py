@@ -124,3 +124,67 @@ class TestAtCoderVariants:
     def test_arc(self):
         obj = parse("https://atcoder.jp/contests/arc100/tasks/arc100_a")
         assert obj.id == "arc100_a"
+
+class TestCustomOJ:
+    def test_make_basic(self):
+        from oj import make_custom_oj
+        cls = make_custom_oj("myoj", [r"myoj\.com/p/(?P<pid>[A-Z0-9]+)"])
+        obj = cls.try_parse("https://myoj.com/p/ABC123")
+        assert obj is not None
+        assert obj.id == "ABC123"
+
+    def test_id_template(self):
+        from oj import make_custom_oj
+        cls = make_custom_oj(
+            "myoj",
+            [r"myoj\.com/c/(?P<cid>\d+)/p/(?P<pid>[A-Z]+)"],
+            id_template="{cid}{pid}",
+        )
+        obj = cls.try_parse("https://myoj.com/c/100/p/A")
+        assert obj.id == "100A"
+
+    def test_parse_with_custom(self):
+        from oj import make_custom_oj, parse
+        cls = make_custom_oj("myoj", [r"myoj\.com/p/(?P<pid>\d+)"])
+        obj = parse("https://myoj.com/p/42", [cls])
+        assert obj.name == "myoj"
+        assert obj.id == "42"
+
+    def test_builtin_wins_first(self):
+        from oj import parse, BUILTIN_OJS
+        obj = parse("https://codeforces.com/contest/1/problem/A")
+        assert obj.name == "codeforces"
+
+    def test_invalid_name(self):
+        from oj import make_custom_oj
+        import pytest
+        with pytest.raises(ValueError):
+            make_custom_oj("Bad Name", [r"x\.com/(?P<pid>\d+)"])
+
+    def test_duplicate_builtin_name(self):
+        from oj import make_custom_oj
+        import pytest
+        with pytest.raises(ValueError, match="builtin"):
+            make_custom_oj("codeforces", [r"x\.com/(?P<pid>\d+)"])
+
+    def test_invalid_regex(self):
+        from oj import make_custom_oj
+        import pytest
+        with pytest.raises(ValueError, match="invalid regex"):
+            make_custom_oj("myoj", ["([unclosed"])
+
+    def test_missing_pid(self):
+        from oj import make_custom_oj
+        import pytest
+        with pytest.raises(ValueError, match="pid"):
+            make_custom_oj("myoj", [r"x\.com/(?P<other>\d+)"])
+
+    def test_bad_id_template(self):
+        from oj import make_custom_oj
+        import pytest
+        with pytest.raises(ValueError, match="unknown group"):
+            make_custom_oj(
+                "myoj",
+                [r"x\.com/(?P<pid>\d+)"],
+                id_template="{nope}",
+            )
