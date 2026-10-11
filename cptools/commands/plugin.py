@@ -1,4 +1,5 @@
 import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -93,14 +94,7 @@ def cmd_info(args: list[str]) -> int:
 
 def cmd_install(args: list[str]) -> int:
     if not args or args[0] in ("-h", "--help"):
-        console.print(
-            "[bold]Usage:[/bold]\n"
-            "  cpt plugin install <path>          install from dir or archive\n"
-            "  cpt plugin install <path> -f       overwrite without asking\n"
-            "\n"
-            "Supported archives: .zip, .tar, .tar.gz, .tgz,\n"
-            "                    .tar.bz2, .tar.xz, .rar"
-        )
+        print_install_help()
         return 0 if args else 2
 
     force = False
@@ -118,6 +112,9 @@ def cmd_install(args: list[str]) -> int:
         err_console.print("[red]error[/red] missing path")
         return 2
 
+    if src_arg.startswith("git+"):
+        return _install_from_git(src_arg, force)
+
     src = Path(src_arg).expanduser()
     if not src.exists():
         err_console.print(f"[red]error[/red] not found: {src}")
@@ -134,7 +131,6 @@ def cmd_install(args: list[str]) -> int:
             except ValueError as e:
                 err_console.print(f"[red]error[/red] {e}")
                 return 1
-
             src_dir = tmpdir
 
         plugin_dir = _find_plugin_dir(src_dir)
@@ -144,40 +140,152 @@ def cmd_install(args: list[str]) -> int:
             )
             return 1
 
-        try:
-            plugin = load_manifest(plugin_dir)
-        except Exception as e:
-            err_console.print(f"[red]error[/red] invalid manifest: {e}")
+        return _install_plugin(plugin_dir, force)
+
+
+def _install_from_git(url: str, force: bool) -> int:
+    git = shutil.which("git")
+    if not git:
+        err_console.print(
+            "[red]error[/red] git not found in PATH. "
+            "Install from https://git-scm.com/"
+        )
+        return 1
+
+    base, ref = _parse_git_url(url)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        repo_dir = Path(tmp) / "repo"
+        if not _git_clone(git, base, ref, repo_dir):
             return 1
 
-        target = paths.user_plugins_dir() / plugin.name
-        builtin_path = paths.builtin_plugins_dir() / plugin.name
-
-        if builtin_path.is_dir():
-            console.print(
-                f"[yellow]note[/yellow] '{plugin.name}' exists as builtin; "
-                "user version will take priority"
+        plugin_dir = _find_plugin_dir(repo_dir)
+        if plugin_dir is None:
+            err_console.print(
+                "[red]error[/red] cptools-plugin.toml not found in repo"
             )
+            return 1
 
-        if target.exists():
-            if not force:
-                answer = questionary.confirm(
-                    f"'{plugin.name}' already installed at {target}. Overwrite?"
-                ).ask()
-                if answer is None:
-                    return 1
-                if not answer:
-                    console.print("aborted")
-                    return 0
-            shutil.rmtree(target)
+        return _install_plugin(plugin_dir, force)
 
-        shutil.copytree(plugin_dir, target)
 
-        console.print(
-            f"[green]installed[/green] {plugin.name} v{plugin.version}"
+def _parse_git_url(s: str) -> tuple[str, str | None]:
+    s = s[4:]
+    if "#" in s:
+        base, ref = s.rsplit("#", 1)
+        return base, ref or None
+    if "@" in s:
+        before, after = s.rsplit("@", 1)
+        if "/" not in after and ":" not in after:
+            return before, after
+    return s, None
+
+
+def _git_clone(git: str, base: str, ref: str | None, dest: Path) -> bool:
+    cmd = [git, "clone", "--depth", "1"]
+    if ref:
+        cmd += ["--branch", ref]
+    cmd += [base, str(dest)]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    except subprocess.TimeoutExpired:
+        err_console.print("[red]error[/red] git clone timed out")
+        return False
+    except OSError as e:
+        err_console.print(f"[red]error[/red] failed to run git: {e}")
+        return False
+
+    if result.returncode == 0:
+        return True
+
+    if not ref:
+        err_console.print(f"[red]error[/red] git clone failed: {result.stderr.strip()}")
+        return False
+
+    shutil.rmtree(dest, ignore_errors=True)
+
+    try:
+        result = subprocess.run(
+            [git, "clone", base, str(dest)],
+            capture_output=True, text=True, timeout=300,
         )
-        console.print(f"  path: {target}")
-        return 0
+    except (subprocess.TimeoutExpired, OSError) as e:
+        err_console.print(f"[red]error[/red] git clone failed: {e}")
+        return False
+
+    if result.returncode != 0:
+        err_console.print(f"[red]error[/red] git clone failed: {result.stderr.strip()}")
+        return False
+
+    try:
+        co = subprocess.run(
+            [git, "-C", str(dest), "checkout", ref],
+            capture_output=True, text=True, timeout=60,
+        )
+    except (subprocess.TimeoutExpired, OSError) as e:
+        err_console.print(f"[red]error[/red] git checkout failed: {e}")
+        return False
+
+    if co.returncode != 0:
+        err_console.print(f"[red]error[/red] git checkout '{ref}' failed: {co.stderr.strip()}")
+        return False
+
+    return True
+
+
+def _install_plugin(plugin_dir: Path, force: bool) -> int:
+    try:
+        plugin = load_manifest(plugin_dir)
+    except Exception as e:
+        err_console.print(f"[red]error[/red] invalid manifest: {e}")
+        return 1
+
+    target = paths.user_plugins_dir() / plugin.name
+    builtin_path = paths.builtin_plugins_dir() / plugin.name
+
+    if builtin_path.is_dir():
+        console.print(
+            f"[yellow]note[/yellow] '{plugin.name}' exists as builtin; "
+            "user version will take priority"
+        )
+
+    if target.exists():
+        if not force:
+            answer = questionary.confirm(
+                f"'{plugin.name}' already installed at {target}. Overwrite?"
+            ).ask()
+            if answer is None:
+                return 1
+            if not answer:
+                console.print("aborted")
+                return 0
+        shutil.rmtree(target)
+
+    shutil.copytree(plugin_dir, target)
+
+    console.print(f"[green]installed[/green] {plugin.name} v{plugin.version}")
+    console.print(f"  path: {target}")
+    return 0
+
+
+def print_install_help() -> None:
+    console.print(
+        "[bold]Usage:[/bold]\n"
+        "  cpt plugin install <path>          install from dir or archive\n"
+        "  cpt plugin install <git-url>       install from git repo\n"
+        "  cpt plugin install <path> -f       overwrite without asking\n"
+        "\n"
+        "[bold]Archives:[/bold]\n"
+        "  .zip .tar .tar.gz .tgz .tar.bz2 .tar.xz .rar\n"
+        "\n"
+        "[bold]Git URLs:[/bold]\n"
+        "  git+https://github.com/user/plugin\n"
+        "  git+https://github.com/user/plugin@v1.2.0\n"
+        "  git+https://github.com/user/plugin#main\n"
+        "  git+ssh://git@github.com/user/plugin\n"
+        "  git+file:///path/to/repo\n"
+    )
 
 
 def cmd_uninstall(args: list[str]) -> int:

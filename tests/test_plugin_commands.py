@@ -1,4 +1,5 @@
 import io
+import subprocess
 import tarfile
 import zipfile
 from pathlib import Path
@@ -260,3 +261,116 @@ class TestSafeJoin:
     def test_deep_traversal(self, tmp_path):
         with pytest.raises(ValueError):
             plugin_cmd._safe_join(tmp_path, "../../etc/passwd")
+
+
+import shutil as _shutil
+
+
+HAS_GIT = _shutil.which("git") is not None
+
+
+class TestParseGitUrl:
+    def test_plain(self):
+        base, ref = plugin_cmd._parse_git_url("git+https://github.com/u/p")
+        assert base == "https://github.com/u/p"
+        assert ref is None
+
+    def test_at_ref(self):
+        base, ref = plugin_cmd._parse_git_url("git+https://github.com/u/p@v1.0")
+        assert base == "https://github.com/u/p"
+        assert ref == "v1.0"
+
+    def test_hash_ref(self):
+        base, ref = plugin_cmd._parse_git_url("git+https://github.com/u/p#dev")
+        assert base == "https://github.com/u/p"
+        assert ref == "dev"
+
+    def test_ssh_user_host(self):
+        base, ref = plugin_cmd._parse_git_url("git+ssh://git@github.com/u/p")
+        assert base == "ssh://git@github.com/u/p"
+        assert ref is None
+
+    def test_ssh_with_ref(self):
+        base, ref = plugin_cmd._parse_git_url("git+ssh://git@github.com/u/p@v2")
+        assert base == "ssh://git@github.com/u/p"
+        assert ref == "v2"
+
+    def test_file_url(self):
+        base, ref = plugin_cmd._parse_git_url("git+file:///tmp/repo")
+        assert base == "file:///tmp/repo"
+        assert ref is None
+
+
+@pytest.mark.skipif(not HAS_GIT, reason="git not installed")
+class TestInstallFromGit:
+    def _make_repo(self, path, name="gtest"):
+        path.mkdir(parents=True, exist_ok=True)
+        (path / "cptools-plugin.toml").write_text(
+            f'[plugin]\nname = "{name}"\nversion = "0.1.0"\n'
+            f'exec = ["python", "main.py"]\n\n[commands]\nhi = "Say hi"\n',
+            encoding="utf-8",
+        )
+        (path / "main.py").write_text("print('hi')\n", encoding="utf-8")
+        subprocess.run(["git", "init", "-q"], cwd=path, check=True)
+        subprocess.run(["git", "add", "."], cwd=path, check=True)
+        subprocess.run(
+            ["git", "-c", "user.email=t@t", "-c", "user.name=t",
+             "commit", "-q", "-m", "init"],
+            cwd=path, check=True,
+        )
+        return path
+
+    def _file_url(self, path):
+        p = path.resolve().as_posix()
+        if not p.startswith("/"):
+            p = "/" + p
+        return "git+file://" + p
+
+    def test_basic_clone(self, fake_paths, tmp_path):
+        repo = self._make_repo(tmp_path / "src")
+        url = self._file_url(repo)
+        rc = plugin_cmd.cmd_install([url])
+        assert rc == 0
+        assert (fake_paths["plugins"] / "gtest" / "main.py").exists()
+
+    def test_with_tag(self, fake_paths, tmp_path):
+        repo = self._make_repo(tmp_path / "src")
+        subprocess.run(["git", "tag", "v0.1.0"], cwd=repo, check=True)
+        url = self._file_url(repo) + "@v0.1.0"
+        rc = plugin_cmd.cmd_install([url])
+        assert rc == 0
+        assert (fake_paths["plugins"] / "gtest").exists()
+
+    def test_with_hash_branch(self, fake_paths, tmp_path):
+        repo = self._make_repo(tmp_path / "src")
+        url = self._file_url(repo) + "#master"
+        rc = plugin_cmd.cmd_install([url])
+        if rc != 0:
+            url = self._file_url(repo) + "#main"
+            rc = plugin_cmd.cmd_install([url])
+        assert rc == 0
+
+    def test_missing_manifest(self, fake_paths, tmp_path):
+        repo = tmp_path / "empty"
+        repo.mkdir()
+        (repo / "x.txt").write_text("x", encoding="utf-8")
+        subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+        subprocess.run(["git", "add", "."], cwd=repo, check=True)
+        subprocess.run(
+            ["git", "-c", "user.email=t@t", "-c", "user.name=t",
+             "commit", "-q", "-m", "init"],
+            cwd=repo, check=True,
+        )
+        url = self._file_url(repo)
+        rc = plugin_cmd.cmd_install([url])
+        assert rc == 1
+
+
+class TestInstallFromGitErrors:
+    def test_git_missing(self, fake_paths, monkeypatch):
+        monkeypatch.setattr(
+            "cptools.commands.plugin.shutil.which",
+            lambda name: None if name == "git" else _shutil.which(name),
+        )
+        rc = plugin_cmd.cmd_install(["git+https://example.com/x"])
+        assert rc == 1
