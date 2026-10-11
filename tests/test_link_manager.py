@@ -591,3 +591,99 @@ class TestOpenFileDelete:
     def test_delete_unknown_id(self, run_plugin):
         r = run_plugin("open-file", "nonexistent", "-D", "-y")
         assert r.returncode == 1
+
+class TestAutoSubdir:
+    def test_default_subdir(self, run_plugin, plugin_dirs):
+        run_plugin("config", "set", "default_dir", str(plugin_dirs["work"]))
+        r = run_plugin("new", CF_URL, "-e", ".cpp", "--no-open")
+        assert r.returncode == 0
+        assert (plugin_dirs["work"] / "codeforces" / "1923A.cpp").exists()
+
+    def test_disabled_subdir(self, run_plugin, plugin_dirs):
+        run_plugin("config", "set", "default_dir", str(plugin_dirs["work"]))
+        run_plugin("config", "set", "auto_oj_subdir", "false")
+        r = run_plugin("new", CF_URL, "-e", ".cpp", "--no-open")
+        assert r.returncode == 0
+        assert (plugin_dirs["work"] / "1923A.cpp").exists()
+
+    def test_explicit_oj_dir_overrides(self, run_plugin, plugin_dirs):
+        target = plugin_dirs["work"] / "special"
+        run_plugin("config", "set", "default_dir", str(plugin_dirs["work"]))
+        run_plugin("config", "set", "oj_dirs.codeforces", str(target))
+        r = run_plugin("new", CF_URL, "-e", ".cpp", "--no-open")
+        assert r.returncode == 0
+        assert (target / "1923A.cpp").exists()
+
+
+class TestCustomOjCommands:
+    def test_add_and_list(self, run_plugin):
+        r = run_plugin("oj", "add", "myoj", r"myoj\.com/p/(?P<pid>[A-Z0-9]+)")
+        assert r.returncode == 0
+
+        r = run_plugin("oj", "list")
+        assert "myoj" in r.stdout
+
+    def test_show(self, run_plugin):
+        run_plugin("oj", "add", "myoj", r"myoj\.com/p/(?P<pid>[A-Z0-9]+)")
+        r = run_plugin("oj", "show", "myoj")
+        assert r.returncode == 0
+        assert "myoj" in r.stdout
+        assert "custom" in r.stdout
+
+    def test_remove(self, run_plugin):
+        run_plugin("oj", "add", "myoj", r"myoj\.com/p/(?P<pid>\d+)")
+        r = run_plugin("oj", "remove", "myoj")
+        assert r.returncode == 0
+
+        r = run_plugin("oj", "show", "myoj")
+        assert r.returncode == 1
+
+    def test_remove_missing(self, run_plugin):
+        r = run_plugin("oj", "remove", "nope")
+        assert r.returncode == 1
+
+    def test_invalid_regex(self, run_plugin):
+        r = run_plugin("oj", "add", "bad", "([unclosed")
+        assert r.returncode == 1
+
+    def test_builtin_name_rejected(self, run_plugin):
+        r = run_plugin("oj", "add", "codeforces", r"x\.com/(?P<pid>\d+)")
+        assert r.returncode == 1
+
+    def test_test_match(self, run_plugin):
+        run_plugin("oj", "add", "myoj", r"myoj\.com/p/(?P<pid>[A-Z0-9]+)")
+        r = run_plugin("oj", "test", "https://myoj.com/p/ABC")
+        assert r.returncode == 0
+        assert "myoj" in r.stdout
+        assert "ABC" in r.stdout
+
+    def test_test_no_match(self, run_plugin):
+        r = run_plugin("oj", "test", "https://nothing.com/xyz")
+        assert r.returncode == 1
+
+    def test_test_with_oj_filter(self, run_plugin):
+        run_plugin("oj", "add", "myoj", r"myoj\.com/p/(?P<pid>\d+)")
+        r = run_plugin("oj", "test", "https://myoj.com/p/42", "--oj", "myoj")
+        assert r.returncode == 0
+        assert "42" in r.stdout
+
+    def test_custom_oj_used_in_new(self, run_plugin, plugin_dirs):
+        run_plugin("oj", "add", "myoj", r"myoj\.com/p/(?P<pid>[A-Z0-9]+)")
+        r = run_plugin(
+            "new",
+            "https://myoj.com/p/ABC",
+            "-d", str(plugin_dirs["work"]),
+            "-e", ".cpp",
+            "--no-open",
+        )
+        assert r.returncode == 0
+        assert (plugin_dirs["work"] / "ABC.cpp").exists()
+
+    def test_add_pattern_append(self, run_plugin):
+        run_plugin("oj", "add", "myoj", r"myoj\.com/p/(?P<pid>\d+)")
+        r = run_plugin(
+            "oj", "add", "myoj", r"old\.myoj\.com/(?P<pid>\d+)", "--append"
+        )
+        assert r.returncode == 0
+        r = run_plugin("oj", "show", "myoj")
+        assert "old" in r.stdout

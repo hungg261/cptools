@@ -21,7 +21,13 @@ DEFAULTS = {
     "default_editor": "",
     "editors": {},
     "prompt_after_new": True,
+    "auto_oj_subdir": True,
+    "custom_ojs": {},
 }
+
+BOOL_KEYS = ("prompt_after_new", "auto_oj_subdir")
+
+_FALSE_STRINGS = ("0", "false", "no", "off", "")
 
 
 def load_config():
@@ -35,9 +41,15 @@ def load_config():
     cfg.update({k: v for k, v in data.items() if k != "oj_dirs"})
     cfg["oj_dirs"] = dict(data.get("oj_dirs") or {})
 
-    # migrate old default template name
     if cfg.get("default_template") == "cpp":
         cfg["default_template"] = "cpp_default"
+
+    for key in BOOL_KEYS:
+        v = cfg.get(key)
+        if isinstance(v, str):
+            cfg[key] = v.strip().lower() not in _FALSE_STRINGS
+        else:
+            cfg[key] = bool(v)
 
     return cfg
 
@@ -58,28 +70,28 @@ def expand(s):
 
 def resolve_dir(cfg, oj_name):
     oj_dirs = cfg.get("oj_dirs") or {}
+    auto_subdir = bool(cfg.get("auto_oj_subdir", True))
 
-    if oj_name and oj_name in oj_dirs:
-        p = expand(oj_dirs[oj_name])
-        if p:
-            return p
+    if oj_name:
+        if oj_name in oj_dirs:
+            p = expand(oj_dirs[oj_name])
+            if p:
+                return p
+        if cfg.get("default_dir"):
+            base = expand(cfg["default_dir"])
+            if base:
+                return base / oj_name if auto_subdir else base
+        return DATA_DIR / "submissions" / oj_name
 
-    if oj_name and cfg.get("default_dir"):
-        p = expand(cfg["default_dir"])
-        if p:
-            return p
-
-    if not oj_name and cfg.get("fallback_dir"):
+    if cfg.get("fallback_dir"):
         p = expand(cfg["fallback_dir"])
         if p:
             return p
-
-    if not oj_name and cfg.get("default_dir"):
+    if cfg.get("default_dir"):
         p = expand(cfg["default_dir"])
         if p:
             return p
-
-    return DATA_DIR / "submissions" / (oj_name or "misc")
+    return DATA_DIR / "submissions" / "misc"
 
 
 def list_templates():

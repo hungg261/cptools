@@ -9,7 +9,14 @@ from pathlib import Path
 from cptools.lib.editor import get_editors, launch as launch_editor, ordered_keys
 from cptools.lib.open import open_file, open_folder, reveal_file
 
-from oj import parse as parse_url, oj_names
+from oj import (
+    parse as parse_url,
+    oj_names,
+    find_oj,
+    make_custom_oj,
+    BUILTIN_OJS,
+)
+
 from conf import (
     DATA_DIR, CONFIG_DIR, TEMPLATES_DIR, DEFAULTS,
     load_config, save_config, resolve_dir, expand,
@@ -49,6 +56,18 @@ def _open_with_editor(path, editor_name, cfg):
     launch_editor(editors[editor_name], path)
 
 
+def load_oj_classes(cfg):
+    classes = []
+    for name, spec in (cfg.get("custom_ojs") or {}).items():
+        try:
+            patterns = spec.get("patterns") or []
+            id_template = spec.get("id_template")
+            classes.append(make_custom_oj(name, patterns, id_template))
+        except Exception as e:
+            print(f"[link-manager] invalid custom oj '{name}': {e}", file=sys.stderr)
+    return classes
+
+
 def _ask_and_open(path, cfg):
     import questionary
 
@@ -85,8 +104,9 @@ def cmd_parse(argv):
         return 2
 
     url = argv[0]
-    obj = parse_url(url)
     cfg = load_config()
+    classes = load_oj_classes(cfg)
+    obj = parse_url(url, classes)
     target = resolve_dir(cfg, obj.name if obj else None)
 
     if obj is None:
@@ -125,8 +145,9 @@ def cmd_new(argv):
     except SystemExit:
         return 2
 
-    obj = parse_url(ns.url)
     cfg = load_config()
+    classes = load_oj_classes(cfg)
+    obj = parse_url(ns.url, classes)
 
     if ns.dir:
         target_dir = expand(ns.dir)
@@ -224,8 +245,9 @@ def cmd_dir(argv):
     if not argv:
         print("usage: dir <url>", file=sys.stderr)
         return 2
-    obj = parse_url(argv[0])
     cfg = load_config()
+    classes = load_oj_classes(cfg)
+    obj = parse_url(argv[0], classes)
     print(resolve_dir(cfg, obj.name if obj else None))
     return 0
 
@@ -243,6 +265,7 @@ def cmd_open(argv):
         return 0 if argv else 2
 
     cfg = load_config()
+    classes = load_oj_classes(cfg)
 
     if argv[0] in ("--data", "--list"):
         DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -279,14 +302,15 @@ def cmd_open(argv):
         return 0
 
     arg = argv[0]
-    obj = parse_url(arg)
+    obj = parse_url(arg, classes)
+    names = oj_names(classes)
 
     if obj is not None:
         target = resolve_dir(cfg, obj.name)
     else:
-        if arg not in oj_names():
+        if arg not in names:
             print(f"not a URL and not a known OJ: {arg}", file=sys.stderr)
-            print(f"known OJs: {', '.join(oj_names())}", file=sys.stderr)
+            print(f"known OJs: {', '.join(names)}", file=sys.stderr)
             return 1
         target = resolve_dir(cfg, arg)
 
@@ -512,6 +536,178 @@ def cmd_editors(argv):
     return 2
 
 
+def cmd_oj(argv):
+    if not argv or argv[0] in ("list", "-h", "--help"):
+        if argv and argv[0] in ("-h", "--help"):
+            print("""usage: oj <subcommand>
+
+  list                     list builtin and custom OJs
+  show <name>              show details
+  add <name> <pattern> [--id-template T]
+  remove <name>
+  test <url> [--oj NAME]   test parsing
+""")
+            return 0
+        return _oj_list()
+
+    sub = argv[0]
+    if sub == "list":
+        return _oj_list()
+    if sub == "show":
+        return _oj_show(argv[1:])
+    if sub == "add":
+        return _oj_add(argv[1:])
+    if sub == "remove":
+        return _oj_remove(argv[1:])
+    if sub == "test":
+        return _oj_test(argv[1:])
+
+    print(f"unknown: oj {sub}", file=sys.stderr)
+    return 2
+
+
+def _oj_list():
+    cfg = load_config()
+    classes = load_oj_classes(cfg)
+    custom_names = {c.name for c in classes}
+
+    print("builtin:")
+    for cls in BUILTIN_OJS:
+        print(f"  {cls.name}")
+
+    if custom_names:
+        print()
+        print("custom:")
+        for cls in classes:
+            print(f"  {cls.name}")
+
+    return 0
+
+
+def _oj_show(args):
+    if not args:
+        print("usage: oj show <name>", file=sys.stderr)
+        return 2
+    name = args[0]
+    cfg = load_config()
+    classes = load_oj_classes(cfg)
+    cls = find_oj(name, classes)
+    if cls is None:
+        print(f"unknown OJ: {name}", file=sys.stderr)
+        return 1
+
+    is_builtin = any(c is cls for c in BUILTIN_OJS)
+    print(f"name:     {cls.name}")
+    print(f"type:     {'builtin' if is_builtin else 'custom'}")
+    print("patterns:")
+    for p in cls.patterns:
+        print(f"  {p.pattern}")
+
+    spec = (cfg.get("custom_ojs") or {}).get(name)
+    if spec and spec.get("id_template"):
+        print(f"id_template: {spec['id_template']}")
+    return 0
+
+
+def _oj_add(args):
+    parser = argparse.ArgumentParser(add_help=False, prog="cpt link oj add")
+    parser.add_argument("name")
+    parser.add_argument("pattern", nargs="?")
+    parser.add_argument("--id-template", dest="id_template", default=None)
+    parser.add_argument("-a", "--append", action="store_true")
+    try:
+        ns = parser.parse_args(args)
+    except SystemExit:
+        return 2
+
+    if not ns.pattern:
+        print("usage: oj add <name> <pattern> [--id-template T]", file=sys.stderr)
+        return 2
+
+    cfg = load_config()
+    custom = dict(cfg.get("custom_ojs") or {})
+    spec = dict(custom.get(ns.name) or {"patterns": []})
+
+    if not ns.append:
+        spec["patterns"] = []
+    spec["patterns"].append(ns.pattern)
+    if ns.id_template:
+        spec["id_template"] = ns.id_template
+
+    custom[ns.name] = spec
+
+    # validate
+    try:
+        make_custom_oj(ns.name, spec["patterns"], spec.get("id_template"))
+    except Exception as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+    cfg["custom_ojs"] = custom
+    save_config(cfg)
+    print(f"oj {ns.name}: {len(spec['patterns'])} pattern(s)")
+    return 0
+
+
+def _oj_remove(args):
+    if not args:
+        print("usage: oj remove <name>", file=sys.stderr)
+        return 2
+    name = args[0]
+    cfg = load_config()
+    custom = dict(cfg.get("custom_ojs") or {})
+    if name not in custom:
+        print(f"not a custom OJ: {name}", file=sys.stderr)
+        return 1
+    custom.pop(name)
+    cfg["custom_ojs"] = custom
+    save_config(cfg)
+    print(f"removed: {name}")
+    return 0
+
+
+def _oj_test(args):
+    parser = argparse.ArgumentParser(add_help=False, prog="cpt link oj test")
+    parser.add_argument("url")
+    parser.add_argument("--oj", dest="oj", default=None)
+    try:
+        ns = parser.parse_args(args)
+    except SystemExit:
+        return 2
+
+    cfg = load_config()
+    classes = load_oj_classes(cfg)
+
+    if ns.oj:
+        cls = find_oj(ns.oj, classes)
+        if cls is None:
+            print(f"unknown OJ: {ns.oj}", file=sys.stderr)
+            return 1
+        candidates = [cls]
+    else:
+        candidates = list(BUILTIN_OJS) + classes
+
+    url = ns.url
+    matches = []
+    for cls in candidates:
+        obj = cls.try_parse(url)
+        if obj is not None:
+            matches.append(obj)
+
+    if not matches:
+        print(f"no match: {url}")
+        return 1
+
+    print(f"URL: {url}")
+    print(f"winner: {matches[0].name} -> {matches[0].id}")
+    if len(matches) > 1:
+        print("also matched:")
+        for obj in matches[1:]:
+            print(f"  {obj.name} -> {obj.id}")
+
+    return 0
+
+
 def _editors_list():
     from cptools.lib.editor import ordered_keys
 
@@ -731,6 +927,7 @@ usage:
   cpt link open-file <id> [opts]              open a saved file
   cpt link rm <id> [opts]                     delete file(s) and entry
   cpt link undo [-y] [--keep-entry]           delete the most recent file
+  cpt link oj <subcommand>                    manage OJs
 
 new options:
   -t, --template NAME    template name (default: config.default_template)
@@ -760,6 +957,8 @@ config keys:
   default_editor         default editor (e.g. vscode)
   editors.<name>         path to editor executable
   prompt_after_new       prompt to open after new (true/false)
+  auto_oj_subdir         auto-create subdir per OJ (true/false)
+  custom_ojs             user-defined OJ regexes (managed via 'cpt link oj')
 
 template placeholders:
   $link  ${link}  and similar: $id $oj $name
@@ -812,6 +1011,7 @@ HANDLERS = {
     "delete": cmd_rm,
     "undo": cmd_undo,
     "editors": cmd_editors,
+    "oj": cmd_oj,
     "config": cmd_config,
     "template": cmd_template,
 }
