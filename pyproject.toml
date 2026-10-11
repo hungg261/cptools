@@ -16,6 +16,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+gui = ["tkinterdnd2>=0.4"]
 rar = ["rarfile>=4.0"]
 
 [project.scripts]

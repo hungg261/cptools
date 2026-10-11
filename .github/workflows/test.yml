@@ -19,11 +19,23 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: install
+      - name: install (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb python3-tk
+          pip install -e .
+
+      - name: install (macOS/Windows)
+        if: runner.os != 'Linux'
         run: pip install -e .
 
       - name: install pytest
         run: pip install pytest
 
-      - name: run tests
+      - name: unit tests
         run: python -m pytest -v
+
+      - name: GUI smoke (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a python -m pytest tests/test_runner_gui_smoke.py -v

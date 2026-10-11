@@ -1,0 +1,14 @@
+[plugin]
+name = "runner"
+alias = ["run"]
+version = "0.1.0"
+description = "Compile and run competitive programming solutions"
+exec = ["python", "main.py"]
+protocol = 1
+
+[commands]
+build  = "Compile a source file"
+run    = "Compile (if needed) and run with optional stdin"
+test   = "Run test cases for a source file"
+gui    = "Open the test editor GUI"
+config = "Manage settings"
