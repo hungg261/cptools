@@ -592,10 +592,10 @@ class SessionTab(ttk.Frame):
 
     def _build_ui(self):
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(1, weight=1)
+        self.rowconfigure(2, weight=1)
 
         row0 = ttk.Frame(self)
-        row0.grid(row=0, column=0, sticky="ew", pady=(0, PAD))
+        row0.grid(row=0, column=0, sticky="ew")
         row0.columnconfigure(1, weight=1)
 
         ttk.Label(row0, text="Source", font=UI).grid(row=0, column=0, padx=(0, 4))
@@ -608,8 +608,24 @@ class SessionTab(ttk.Frame):
         ttk.Button(row0, text="\u2026", width=2,
                    command=self._browse_source).grid(row=0, column=2)
 
+        row1 = ttk.Frame(self)
+        row1.grid(row=1, column=0, sticky="ew", pady=(PAD, PAD))
+        row1.columnconfigure(2, weight=1)
+
+        self.btn_build = ttk.Button(row1, text="Build", width=6,
+                                    command=self._build)
+        self.btn_build.grid(row=0, column=0, padx=(0, 2))
+
+        self.btn_run = ttk.Button(row1, text="Run", width=6,
+                                  command=self._run_all)
+        self.btn_run.grid(row=0, column=1, padx=2)
+
+        self.btn_close = ttk.Button(row1, text="\u2715 Close tab", width=11,
+                                    command=self._close_self)
+        self.btn_close.grid(row=0, column=4)
+
         main = ttk.Frame(self)
-        main.grid(row=1, column=0, sticky="nsew")
+        main.grid(row=2, column=0, sticky="nsew")
         main.columnconfigure(1, weight=1)
         main.rowconfigure(0, weight=1)
 
