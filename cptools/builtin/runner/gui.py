@@ -10,7 +10,10 @@ from tkinter.scrolledtext import ScrolledText
 
 from compile import compile_source, default_output, find_compiler, is_stale
 from run import run_binary, compare
-from store import DEFAULT_IO, load, save, add_test, remove_test, work_root_for
+from store import (
+    DEFAULT_IO, load, save, add_test, remove_test, work_root_for,
+    load_history, add_to_history, clear_history, MAX_HISTORY,
+)
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -31,6 +34,36 @@ DEFAULTS = {
     "bin_dir": "",
     "rebuild": "auto",
 }
+
+DEFAULT_HOTKEYS = {
+    "new_tab":     "Ctrl+T",
+    "open_file":   "Ctrl+O",
+    "close_tab":   "Ctrl+W",
+    "next_tab":    "Ctrl+Tab",
+    "prev_tab":    "Ctrl+Shift+Tab",
+    "build":       "Ctrl+B",
+    "run_all":     "F5",
+    "add_test":    "Ctrl+N",
+    "delete_test": "Delete",
+    "focus_next":  "Ctrl+Return",
+    "settings":    "Ctrl+comma",
+    "quit":        "Ctrl+Q",
+}
+
+HOTKEY_ACTIONS = [
+    ("new_tab",     "New tab"),
+    ("open_file",   "Open file"),
+    ("close_tab",   "Close tab"),
+    ("next_tab",    "Next tab"),
+    ("prev_tab",    "Previous tab"),
+    ("build",       "Build"),
+    ("run_all",     "Run all"),
+    ("add_test",    "Add test"),
+    ("delete_test", "Delete test"),
+    ("focus_next",  "Focus next"),
+    ("settings",    "Settings"),
+    ("quit",        "Quit"),
+]
 
 if sys.platform == "win32":
     MONO = ("Consolas", 10)
@@ -62,7 +95,9 @@ TIMEOUT_FG = "#b06000"
 AUTO_SAVE_MS = 400
 
 
-def _load_cfg():
+# =================================================================== helpers
+
+def _load_full_cfg():
     data = {}
     if CONFIG_FILE.exists():
         try:
@@ -70,8 +105,30 @@ def _load_cfg():
         except Exception:
             data = {}
     cfg = dict(DEFAULTS)
-    cfg.update(data)
+    for k, v in data.items():
+        if k == "hotkeys":
+            continue
+        cfg[k] = v
+    if not isinstance(cfg.get("compiler_flags"), list):
+        cfg["compiler_flags"] = list(DEFAULTS["compiler_flags"])
+    hk = dict(DEFAULT_HOTKEYS)
+    user_hk = data.get("hotkeys") or {}
+    if isinstance(user_hk, dict):
+        for k, v in user_hk.items():
+            if k in DEFAULT_HOTKEYS and isinstance(v, str):
+                hk[k] = v
+    cfg["hotkeys"] = hk
     return cfg
+
+
+def _save_full_cfg(cfg):
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    data = {k: v for k, v in cfg.items() if k != "hotkeys"}
+    data["hotkeys"] = cfg.get("hotkeys", {})
+    CONFIG_FILE.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
 
 
 def _set_readonly(widget, text):
@@ -100,7 +157,411 @@ def _copy_to_clipboard(widget, app):
     app.set_status("copied")
 
 
-# ---------------------------------------------------------------- SessionTab
+# =================================================================== hotkey parse
+
+_DISPLAY_ALIASES = {
+    "comma": ",",
+    "period": ".",
+    "slash": "/",
+    "backslash": "\\",
+    "semicolon": ";",
+    "apostrophe": "'",
+    "bracketleft": "[",
+    "bracketright": "]",
+    "minus": "-",
+    "equal": "=",
+    "grave": "`",
+    "space": "Space",
+    "Return": "Enter",
+    "Escape": "Esc",
+}
+
+# canonical keysym → display form (user-facing)
+_KEY_DISPLAY = {
+    "comma": ",",
+    "period": ".",
+    "slash": "/",
+    "backslash": "\\",
+    "semicolon": ";",
+    "apostrophe": "'",
+    "bracketleft": "[",
+    "bracketright": "]",
+    "minus": "-",
+    "equal": "=",
+    "grave": "`",
+    "space": "Space",
+    "Return": "Enter",
+    "Escape": "Esc",
+    "Tab": "Tab",
+    "BackSpace": "Backspace",
+    "Delete": "Delete",
+    "Insert": "Insert",
+    "Home": "Home",
+    "End": "End",
+    "Prior": "PageUp",
+    "Next": "PageDown",
+    "Up": "Up",
+    "Down": "Down",
+    "Left": "Left",
+    "Right": "Right",
+}
+
+# display → keysym for parsing back
+_DISPLAY_TO_KEY = {
+    ",": "comma",
+    ".": "period",
+    "/": "slash",
+    "\\": "backslash",
+    ";": "semicolon",
+    "'": "apostrophe",
+    "[": "bracketleft",
+    "]": "bracketright",
+    "-": "minus",
+    "=": "equal",
+    "`": "grave",
+    "Space": "space",
+    "Enter": "Return",
+    "Esc": "Escape",
+}
+
+_MOD_KEYSYM = {
+    "Control_L": "Ctrl", "Control_R": "Ctrl",
+    "Shift_L": "Shift", "Shift_R": "Shift",
+    "Alt_L": "Alt", "Alt_R": "Alt",
+    "Super_L": "Super", "Super_R": "Super",
+    "Meta_L": "Super", "Meta_R": "Super",
+}
+
+_SHIFT_MAP = {
+    "exclam": "1",
+    "at": "2",
+    "numbersign": "3",
+    "dollar": "4",
+    "percent": "5",
+    "asciicircum": "6",
+    "ampersand": "7",
+    "asterisk": "8",
+    "parenleft": "9",
+    "parenright": "0",
+    "underscore": "-",
+    "plus": "=",
+    "braceleft": "[",
+    "braceright": "]",
+    "bar": "\\",
+    "colon": ";",
+    "quotedbl": "'",
+    "less": ",",
+    "greater": ".",
+    "question": "/",
+    "asciitilde": "`",
+}
+
+_SHIFT_KEY_REVERSE = {v: k for k, v in _SHIFT_MAP.items()}
+
+
+def _modifier_from_keysym(ks):
+    return _MOD_KEYSYM.get(ks)
+
+
+def _mod_order(mods):
+    order = ["Ctrl", "Shift", "Alt", "Super"]
+    return [m for m in order if m in mods]
+
+
+def _key_display_and_shift(ks):
+    if ks in _SHIFT_MAP:
+        return _SHIFT_MAP[ks], True
+    display = _KEY_DISPLAY.get(ks, ks)
+    if len(display) == 1 and display.isalpha():
+        display = display.upper()
+    return display, False
+
+
+def _parse_hotkey(s):
+    if not s or not isinstance(s, str):
+        return None
+    parts = [p.strip() for p in s.split("+") if p.strip()]
+    if not parts:
+        return None
+
+    mods = []
+    key = parts[-1]
+
+    for m in parts[:-1]:
+        ml = m.lower()
+        if ml in ("ctrl", "control"):
+            mods.append("Control")
+        elif ml == "shift":
+            mods.append("Shift")
+        elif ml == "alt":
+            mods.append("Alt")
+        elif ml in ("super", "cmd", "win", "meta"):
+            mods.append("Super")
+        else:
+            return None
+
+    key = _DISPLAY_TO_KEY.get(key, key)
+
+    if "Shift" in mods and key in _SHIFT_KEY_REVERSE:
+        key = _SHIFT_KEY_REVERSE[key]
+        mods = [m for m in mods if m != "Shift"]
+
+    if len(key) == 1 and key.isalpha():
+        key = key.lower()
+
+    tk_binding = "-".join(mods + [key])
+    return f"<{tk_binding}>"
+
+
+def _event_to_display(event):
+    state = event.state
+    parts = []
+    if state & 0x4:
+        parts.append("Ctrl")
+    if state & 0x1:
+        parts.append("Shift")
+    if state & 0x8:
+        parts.append("Alt")
+    if state & 0x40:
+        parts.append("Super")
+
+    ks = event.keysym
+    if ks in ("Control_L", "Control_R", "Shift_L", "Shift_R",
+              "Alt_L", "Alt_R", "Super_L", "Super_R", "Meta_L", "Meta_R",
+              "Caps_Lock", "Num_Lock", "Scroll_Lock"):
+        return None
+
+    display_key = _KEY_DISPLAY.get(ks, ks)
+    if len(display_key) == 1 and display_key.isalpha():
+        display_key = display_key.upper()
+
+    if not parts:
+        return display_key
+    return "+".join(parts + [display_key])
+
+
+# =================================================================== CaptureDialog
+
+class CaptureDialog(tk.Toplevel):
+    def __init__(self, parent, action_label, current_display):
+        super().__init__(parent)
+        self.result = None
+        self._current = current_display or ""
+        self._mods = set()
+
+        self.title(f"Rebind: {action_label}")
+        self.geometry("380x170")
+        self.transient(parent)
+        self.resizable(False, False)
+
+        frame = ttk.Frame(self, padding=12)
+        frame.pack(fill="both", expand=True)
+
+        ttk.Label(frame, text=action_label, font=UI_BOLD).pack(anchor="w")
+
+        ttk.Label(
+            frame, text="Press a new key combination…",
+            font=UI_SMALL, foreground=FG_MUTED,
+        ).pack(anchor="w", pady=(2, 8))
+
+        info = ttk.Frame(frame)
+        info.pack(fill="x", pady=(0, 8))
+        info.columnconfigure(1, weight=1)
+
+        ttk.Label(info, text="Current:", font=UI).grid(row=0, column=0, sticky="w", padx=(0, 6))
+        ttk.Label(info, text=current_display or "(none)", font=UI).grid(row=0, column=1, sticky="w")
+
+        ttk.Label(info, text="New:", font=UI).grid(row=1, column=0, sticky="w", padx=(0, 6))
+        self.new_var = tk.StringVar(value="waiting…")
+        ttk.Label(info, textvariable=self.new_var, font=UI_BOLD).grid(
+            row=1, column=1, sticky="w"
+        )
+
+        btns = ttk.Frame(frame)
+        btns.pack(fill="x", side="bottom")
+        ttk.Button(btns, text="Cancel", command=self._cancel).pack(side="right")
+        self.confirm_btn = ttk.Button(btns, text="Confirm", command=self._confirm)
+        self.confirm_btn.pack(side="right", padx=(0, 4))
+        self.confirm_btn.configure(state="disabled")
+
+        self.bind("<KeyPress>", self._on_press)
+        self.bind("<KeyRelease>", self._on_release)
+        self.bind("<FocusOut>", self._on_focus_out)
+        self.after(50, self._focus)
+        self.grab_set()
+
+    def _focus(self):
+        try:
+            self.focus_force()
+        except Exception:
+            pass
+
+    def _on_press(self, event):
+        ks = event.keysym
+
+        if ks == "Escape":
+            self._cancel()
+            return "break"
+        if ks == "Return":
+            if self._current:
+                self._confirm()
+            return "break"
+
+        mod = _modifier_from_keysym(ks)
+        if mod:
+            self._mods.add(mod)
+            self._update_display()
+            return "break"
+
+        display_key, force_shift = _key_display_and_shift(ks)
+        if not display_key:
+            return "break"
+
+        mods = set(self._mods)
+        if force_shift:
+            mods.add("Shift")
+        parts = _mod_order(mods) + [display_key]
+        self._current = "+".join(parts)
+        self.new_var.set(self._current)
+        self.confirm_btn.configure(state="normal")
+        return "break"
+
+    def _on_release(self, event):
+        mod = _modifier_from_keysym(event.keysym)
+        if mod:
+            self._mods.discard(mod)
+        return "break"
+
+    def _on_focus_out(self, event):
+        self._mods.clear()
+
+    def _update_display(self):
+        if self._mods:
+            self.new_var.set("+".join(_mod_order(self._mods)) + "+…")
+        else:
+            self.new_var.set("waiting…")
+
+    def _confirm(self):
+        self.result = self._current
+        self.destroy()
+
+    def _cancel(self):
+        self.result = None
+        self.destroy()
+
+# =================================================================== SettingsDialog
+
+class SettingsDialog(tk.Toplevel):
+    def __init__(self, parent, app):
+        super().__init__(parent)
+        self.app = app
+        self.title("Settings")
+        self.geometry("460x480")
+        self.transient(parent)
+        self.minsize(400, 380)
+
+        self._hotkeys = dict(app.cfg.get("hotkeys") or DEFAULT_HOTKEYS)
+
+        outer = ttk.Frame(self, padding=8)
+        outer.pack(fill="both", expand=True)
+
+        ttk.Label(outer, text="Hotkeys", font=UI_BOLD).pack(anchor="w", pady=(0, 6))
+
+        list_frame = ttk.Frame(outer)
+        list_frame.pack(fill="both", expand=True)
+        list_frame.columnconfigure(0, weight=1)
+        list_frame.rowconfigure(0, weight=1)
+
+        self.tree = ttk.Treeview(
+            list_frame, columns=("action", "binding"),
+            show="headings", selectmode="browse",
+        )
+        self.tree.heading("action", text="Action")
+        self.tree.heading("binding", text="Binding")
+        self.tree.column("action", width=200, anchor="w")
+        self.tree.column("binding", width=180, anchor="w")
+        self.tree.grid(row=0, column=0, sticky="nsew")
+
+        sb = ttk.Scrollbar(list_frame, orient="vertical", command=self.tree.yview)
+        sb.grid(row=0, column=1, sticky="ns")
+        self.tree.configure(yscrollcommand=sb.set)
+
+        self.tree.bind("<Double-1>", lambda e: self._edit_selected())
+
+        hint = ttk.Label(
+            outer, text="Double-click a row to rebind",
+            font=UI_SMALL, foreground=FG_MUTED,
+        )
+        hint.pack(anchor="w", pady=(4, 6))
+
+        btns = ttk.Frame(outer)
+        btns.pack(fill="x")
+        ttk.Button(btns, text="Reset all", command=self._reset_all).pack(side="left")
+        ttk.Button(btns, text="Close", command=self._close).pack(side="right")
+        ttk.Button(btns, text="Save", command=self._save).pack(side="right", padx=(0, 4))
+
+        self._populate()
+        self.grab_set()
+
+    def _populate(self):
+        self.tree.delete(*self.tree.get_children())
+        for key, label in HOTKEY_ACTIONS:
+            display = self._hotkeys.get(key, "")
+            self.tree.insert("", "end", iid=key, values=(label, display or "(none)"))
+
+    def _edit_selected(self):
+        sel = self.tree.selection()
+        if not sel:
+            return
+        key = sel[0]
+        label = dict(HOTKEY_ACTIONS).get(key, key)
+        current = self._hotkeys.get(key, "")
+        dlg = CaptureDialog(self, label, current)
+        self.wait_window(dlg)
+        if dlg.result is None:
+            return
+        new_binding = dlg.result
+        if new_binding:
+            conflicts = [
+                (k, lbl) for k, lbl in HOTKEY_ACTIONS
+                if k != key and self._hotkeys.get(k) == new_binding
+            ]
+            if conflicts:
+                other_label = conflicts[0][1]
+                if not messagebox.askyesno(
+                    "Hotkey conflict",
+                    f"'{new_binding}' is already bound to '{other_label}'.\n"
+                    f"Replace it?",
+                    parent=self,
+                ):
+                    return
+                for k, _ in conflicts:
+                    self._hotkeys[k] = ""
+        self._hotkeys[key] = new_binding
+        self._populate()
+
+    def _reset_all(self):
+        if not messagebox.askyesno(
+            "Reset hotkeys",
+            "Reset all hotkeys to defaults?",
+            parent=self,
+        ):
+            return
+        self._hotkeys = dict(DEFAULT_HOTKEYS)
+        self._populate()
+
+    def _save(self):
+        self.app.cfg["hotkeys"] = dict(self._hotkeys)
+        _save_full_cfg(self.app.cfg)
+        self.app._apply_hotkeys()
+        self.app.set_status("hotkeys saved")
+        self.destroy()
+
+    def _close(self):
+        self.destroy()
+
+
+# =================================================================== SessionTab
 
 class SessionTab(ttk.Frame):
     def __init__(self, parent, app, source=None):
@@ -131,10 +592,10 @@ class SessionTab(ttk.Frame):
 
     def _build_ui(self):
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(2, weight=1)
+        self.rowconfigure(1, weight=1)
 
         row0 = ttk.Frame(self)
-        row0.grid(row=0, column=0, sticky="ew")
+        row0.grid(row=0, column=0, sticky="ew", pady=(0, PAD))
         row0.columnconfigure(1, weight=1)
 
         ttk.Label(row0, text="Source", font=UI).grid(row=0, column=0, padx=(0, 4))
@@ -147,24 +608,8 @@ class SessionTab(ttk.Frame):
         ttk.Button(row0, text="\u2026", width=2,
                    command=self._browse_source).grid(row=0, column=2)
 
-        row1 = ttk.Frame(self)
-        row1.grid(row=1, column=0, sticky="ew", pady=(PAD, PAD))
-        row1.columnconfigure(2, weight=1)
-
-        self.btn_build = ttk.Button(row1, text="Build", width=6, command=self._build)
-        self.btn_build.grid(row=0, column=0, padx=(0, 2))
-
-        self.btn_run = ttk.Button(row1, text="Run", width=6, command=self._run_all)
-        self.btn_run.grid(row=0, column=1, padx=2)
-
-        self.btn_close = ttk.Button(
-            row1, text="\u2715 Close tab", width=11,
-            command=self._close_self,
-        )
-        self.btn_close.grid(row=0, column=4)
-
         main = ttk.Frame(self)
-        main.grid(row=2, column=0, sticky="nsew")
+        main.grid(row=1, column=0, sticky="nsew")
         main.columnconfigure(1, weight=1)
         main.rowconfigure(0, weight=1)
 
@@ -186,7 +631,6 @@ class SessionTab(ttk.Frame):
         self.tree.tag_configure("fail", foreground=FAIL_FG)
         self.tree.tag_configure("timeout", foreground=TIMEOUT_FG)
         self.tree.bind("<<TreeviewSelect>>", self._on_test_select)
-        self.tree.bind("<Delete>", lambda e: self._delete_tests())
 
         lb = ttk.Frame(left)
         lb.grid(row=1, column=0, sticky="ew", pady=(PAD, 0))
@@ -436,6 +880,7 @@ class SessionTab(ttk.Frame):
             self.app.set_status("no source")
         else:
             self.app.set_status(f"loaded {path.name}")
+            self.app._on_source_opened(path)
 
     def _reload_preview(self):
         if self.source and self.source.is_file():
@@ -915,26 +1360,30 @@ class SessionTab(ttk.Frame):
         self.app.close_tab(self)
 
 
-# ---------------------------------------------------------------- RunnerApp
+# =================================================================== RunnerApp
 
 class RunnerApp:
     def __init__(self, root, initial_source=None):
         self.root = root
-        self.cfg = _load_cfg()
+        self.cfg = _load_full_cfg()
         self.tabs = []
+        self._bound = {}
 
         self.root.title("CP Runner")
-        self.root.geometry("520x640")
-        self.root.minsize(440, 480)
+        self.root.geometry("560x660")
+        self.root.minsize(460, 500)
 
         self._setup_style()
+        self._build_menubar()
         self._build_ui()
-        self._bind_keys()
+        self._apply_hotkeys()
 
         if initial_source:
             self.add_tab(Path(initial_source))
         else:
             self.add_tab()
+
+        self.root.protocol("WM_DELETE_WINDOW", self._quit)
 
     def _setup_style(self):
         style = ttk.Style()
@@ -960,40 +1409,213 @@ class RunnerApp:
         style.configure("Status.TLabel", font=UI_SMALL, padding=(4, 2),
                         foreground=FG_MUTED)
 
+    def _build_menubar(self):
+        menubar = tk.Menu(self.root)
+
+        file_menu = tk.Menu(menubar, tearoff=0)
+        file_menu.add_command(
+            label="New tab", accelerator="Ctrl+T", command=self.add_tab,
+        )
+        file_menu.add_command(
+            label="Open file\u2026", accelerator="Ctrl+O", command=self._open_file,
+        )
+        file_menu.add_separator()
+
+        self.recent_menu = tk.Menu(file_menu, tearoff=0)
+        file_menu.add_cascade(label="Recent files", menu=self.recent_menu)
+        self._rebuild_recent_menu()
+
+        file_menu.add_separator()
+        file_menu.add_command(
+            label="Settings\u2026", accelerator="Ctrl+,", command=self._open_settings,
+        )
+        file_menu.add_separator()
+        file_menu.add_command(
+            label="Close tab", accelerator="Ctrl+W", command=self._close_current,
+        )
+        file_menu.add_command(
+            label="Exit", accelerator="Ctrl+Q", command=self._quit,
+        )
+        menubar.add_cascade(label="File", menu=file_menu, underline=-1)
+
+        run_menu = tk.Menu(menubar, tearoff=0)
+        run_menu.add_command(
+            label="Build", accelerator="Ctrl+B",
+            command=lambda: self._dispatch_to_active("_build"),
+        )
+        run_menu.add_command(
+            label="Run all", accelerator="F5",
+            command=lambda: self._dispatch_to_active("_run_all"),
+        )
+        run_menu.add_separator()
+        run_menu.add_command(
+            label="Add test", accelerator="Ctrl+N",
+            command=lambda: self._dispatch_to_active("_new_test"),
+        )
+        run_menu.add_command(
+            label="Delete selected test", accelerator="Delete",
+            command=lambda: self._dispatch_to_active("_delete_tests"),
+        )
+        menubar.add_cascade(label="Run", menu=run_menu, underline=-1)
+
+        help_menu = tk.Menu(menubar, tearoff=0)
+        help_menu.add_command(label="About", command=self._show_about)
+        menubar.add_cascade(label="Help", menu=help_menu, underline=-1)
+
+        self.root.config(menu=menubar)
+        self._menubar = menubar
+        self._file_menu = file_menu
+
+    def _rebuild_recent_menu(self):
+        self.recent_menu.delete(0, "end")
+        items = load_history()
+        if not items:
+            self.recent_menu.add_command(
+                label="(no recent files)", state="disabled",
+            )
+            return
+        for it in items:
+            path = it.get("path", "")
+            exists = Path(path).exists()
+            label = Path(path).name or path
+            if not exists:
+                label += "  (missing)"
+            self.recent_menu.add_command(
+                label=label,
+                state="normal" if exists else "disabled",
+                command=(lambda p=path: self.open_path(p)) if exists else None,
+            )
+        self.recent_menu.add_separator()
+        self.recent_menu.add_command(
+            label="Clear recent",
+            command=self._clear_recent,
+        )
+
+    def _clear_recent(self):
+        if not messagebox.askyesno(
+            "Clear history",
+            "Clear all recent files?",
+            parent=self.root,
+        ):
+            return
+        clear_history()
+        self._rebuild_recent_menu()
+        self.set_status("history cleared")
+
+    def _on_source_opened(self, path):
+        add_to_history(path)
+        self._rebuild_recent_menu()
+
+    def open_path(self, path):
+        p = Path(path)
+        if not p.is_file():
+            messagebox.showerror(
+                "Open failed", f"File not found:\n{path}", parent=self.root,
+            )
+            self._rebuild_recent_menu()
+            return
+        self.add_tab(p)
+
+    def _open_file(self):
+        p = filedialog.askopenfilename(
+            parent=self.root,
+            title="Open source",
+            filetypes=[("C/C++", "*.cpp *.cc *.cxx *.c"), ("All files", "*.*")],
+        )
+        if p:
+            self.open_path(p)
+
     def _build_ui(self):
         self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(1, weight=1)
-
-        toolbar = ttk.Frame(self.root, padding=(4, 4, 4, 0))
-        toolbar.grid(row=0, column=0, sticky="ew")
-        toolbar.columnconfigure(0, weight=1)
-
-        ttk.Button(
-            toolbar, text="+",
-            width=3,
-            command=self.add_tab,
-        ).grid(row=0, column=1)
+        self.root.rowconfigure(0, weight=1)
 
         self.notebook = ttk.Notebook(self.root)
-        self.notebook.grid(row=1, column=0, sticky="nsew", padx=2, pady=(2, 0))
+        self.notebook.grid(row=0, column=0, sticky="nsew", padx=2, pady=(2, 0))
         self.notebook.bind("<Button-2>", self._on_middle_click)
         self.notebook.bind("<Button-3>", self._on_tab_rightclick)
 
         self.status_var = tk.StringVar(value="ready")
         status = ttk.Label(self.root, textvariable=self.status_var,
                            style="Status.TLabel", anchor="w")
-        status.grid(row=2, column=0, sticky="ew")
+        status.grid(row=1, column=0, sticky="ew")
 
-    def _bind_keys(self):
-        self.root.bind("<Control-t>", lambda e: self.add_tab())
-        self.root.bind("<Control-w>", lambda e: self._close_current())
-        self.root.bind("<Control-Tab>", lambda e: self._cycle_tab(1))
-        self.root.bind("<Control-Shift-Tab>", lambda e: self._cycle_tab(-1))
-        self.root.bind("<F5>", lambda e: self._dispatch_to_active("_run_all"))
-        self.root.bind("<Control-b>", lambda e: self._dispatch_to_active("_build"))
-        self.root.bind("<Control-r>", lambda e: self._dispatch_to_active("_run_all"))
-        self.root.bind("<Control-n>", lambda e: self._dispatch_to_active("_new_test"))
-        self.root.bind("<Control-Return>", self._focus_next)
+    # -------------------------------------------------- hotkeys
+
+    def _apply_hotkeys(self):
+        for binding in list(self._bound.values()):
+            try:
+                self.root.unbind(binding)
+            except Exception:
+                pass
+        self._bound.clear()
+
+        hotkeys = self.cfg.get("hotkeys") or DEFAULT_HOTKEYS
+        for action, display in hotkeys.items():
+            if not display:
+                continue
+            tk_binding = _parse_hotkey(display)
+            if not tk_binding:
+                continue
+            callback = self._hotkey_callback(action)
+            if callback is None:
+                continue
+            try:
+                self.root.bind(tk_binding, callback)
+                self._bound[action] = tk_binding
+            except Exception:
+                pass
+
+    def _hotkey_callback(self, action):
+        return {
+            "new_tab":     lambda e: self._hk(self.add_tab),
+            "open_file":   lambda e: self._hk(self._open_file),
+            "close_tab":   lambda e: self._hk(self._close_current),
+            "next_tab":    lambda e: self._hk(lambda: self._cycle_tab(1)),
+            "prev_tab":    lambda e: self._hk(lambda: self._cycle_tab(-1)),
+            "build":       lambda e: self._hk(lambda: self._dispatch_to_active("_build")),
+            "run_all":     lambda e: self._hk(lambda: self._dispatch_to_active("_run_all")),
+            "add_test":    lambda e: self._hk(lambda: self._dispatch_to_active("_new_test")),
+            "delete_test": lambda e: self._hk(lambda: self._dispatch_to_active("_delete_tests")),
+            "focus_next":  lambda e: self._focus_next(),
+            "settings":    lambda e: self._hk(self._open_settings),
+            "quit":        lambda e: self._hk(self._quit),
+        }.get(action)
+
+    def _hk(self, fn):
+        fn()
+        return "break"
+
+    def _focus_next(self):
+        tab = self._active_tab()
+        if tab is None:
+            return "break"
+        focused = self.root.focus_get()
+        if focused == tab.input_text:
+            if str(tab.expected_text.cget("state")) != "disabled":
+                tab.expected_text.focus_set()
+            return "break"
+        if focused == tab.expected_text:
+            if str(tab.input_text.cget("state")) != "disabled":
+                tab.input_text.focus_set()
+            return "break"
+        return "break"
+
+    def _open_settings(self):
+        SettingsDialog(self.root, self)
+
+    def _show_about(self):
+        messagebox.showinfo(
+            "About CP Runner",
+            "CP Runner\n\n"
+            "Compile and test competitive programming solutions.\n"
+            "Part of cptools.",
+            parent=self.root,
+        )
+
+    def _quit(self):
+        self.root.destroy()
+
+    # -------------------------------------------------- active tab
 
     def _dispatch_to_active(self, method_name):
         tab = self._active_tab()
@@ -1008,20 +1630,6 @@ class RunnerApp:
             return None
         w = self.notebook.nametowidget(cur)
         return w if isinstance(w, SessionTab) else None
-
-    def _focus_next(self, event):
-        tab = self._active_tab()
-        if tab is None:
-            return
-        focused = self.root.focus_get()
-        if focused == tab.input_text:
-            if str(tab.expected_text.cget("state")) != "disabled":
-                tab.expected_text.focus_set()
-            return "break"
-        if focused == tab.expected_text:
-            if str(tab.input_text.cget("state")) != "disabled":
-                tab.input_text.focus_set()
-            return "break"
 
     # -------------------------------------------------- tabs
 
