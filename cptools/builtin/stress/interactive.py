@@ -181,11 +181,21 @@ def run_interactive(
         tracker.discard(sol_proc)
         tracker.discard(inter_proc)
 
-    time.sleep(0.05)
-    fwd_a.stop()
-    fwd_b.stop()
-    fwd_a.join(timeout=1)
-    fwd_b.join(timeout=1)
+    # Let forwarders drain remaining bytes from pipes. They exit naturally
+    # when the src end hits EOF (process exit closes stdout). Only force-stop
+    # if they're still alive after a grace period (e.g. pipe held open).
+    for _ in range(30):
+        if not fwd_a.is_alive() and not fwd_b.is_alive():
+            break
+        time.sleep(0.05)
+
+    for fwd in (fwd_a, fwd_b):
+        if fwd.is_alive():
+            fwd.stop()
+        try:
+            fwd.join(timeout=1.5)
+        except Exception:
+            pass
 
     inter_rc = inter_proc.returncode
     sol_rc = sol_proc.returncode
