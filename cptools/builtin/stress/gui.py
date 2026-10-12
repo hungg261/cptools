@@ -275,7 +275,7 @@ class SettingsDialog(tk.Toplevel):
         super().__init__(parent)
         self.app = app
         self.title("Settings")
-        self.geometry("520x620")
+        self.geometry("520x580")
         self.transient(parent)
         self.minsize(460, 500)
 
@@ -285,14 +285,21 @@ class SettingsDialog(tk.Toplevel):
         outer = ttk.Frame(self, padding=10)
         outer.pack(fill="both", expand=True)
 
+        # Buttons packed FIRST at bottom
+        btns = ttk.Frame(outer)
+        btns.pack(side="bottom", fill="x", pady=(8, 0))
+        ttk.Button(btns, text="Reset", command=self._reset).pack(side="left")
+        ttk.Button(btns, text="Close", command=self.destroy).pack(side="right")
+        ttk.Button(btns, text="Save", command=self._save).pack(side="right", padx=(0, 4))
+
         t1 = ttk.LabelFrame(outer, text=" Timing ", padding=(8, 6))
-        t1.pack(fill="x", pady=(0, 8))
+        t1.pack(fill="x", pady=(0, 6))
 
         self.vars = {}
 
         def row(parent, label, key, width=12):
             f = ttk.Frame(parent)
-            f.pack(fill="x", pady=2)
+            f.pack(fill="x", pady=1)
             ttk.Label(f, text=label, width=18, anchor="w").pack(side="left")
             v = tk.StringVar(value=str(self.gcfg.get(key, DEFAULT_CONFIG.get(key, ""))))
             ttk.Entry(f, textvariable=v, width=width).pack(side="left")
@@ -305,16 +312,16 @@ class SettingsDialog(tk.Toplevel):
         row(t1, "Gen timeout (s)", "gen_timeout")
 
         t2 = ttk.LabelFrame(outer, text=" Compiler ", padding=(8, 6))
-        t2.pack(fill="x", pady=(0, 8))
+        t2.pack(fill="x", pady=(0, 6))
         row(t2, "Executable", "compiler")
         row(t2, "Flags", "compiler_flags", width=30)
         row(t2, "Compile timeout (s)", "compile_timeout")
 
         t3 = ttk.LabelFrame(outer, text=" Defaults ", padding=(8, 6))
-        t3.pack(fill="x", pady=(0, 8))
+        t3.pack(fill="x", pady=(0, 6))
 
         f = ttk.Frame(t3)
-        f.pack(fill="x", pady=2)
+        f.pack(fill="x", pady=1)
         ttk.Label(f, text="Match mode", width=18, anchor="w").pack(side="left")
         self.match_var = tk.StringVar(value=self.gcfg.get("match_mode", "token"))
         ttk.Combobox(
@@ -325,19 +332,19 @@ class SettingsDialog(tk.Toplevel):
 
         row(t3, "Max fails", "max_fails")
         f = ttk.Frame(t3)
-        f.pack(fill="x", pady=2)
+        f.pack(fill="x", pady=1)
         ttk.Label(f, text="Stop on first fail", width=18, anchor="w").pack(side="left")
         self.stop_var = tk.BooleanVar(value=bool(self.gcfg.get("stop_on_fail", True)))
         ttk.Checkbutton(f, variable=self.stop_var).pack(side="left")
 
         t4 = ttk.LabelFrame(outer, text=" Hotkeys ", padding=(8, 6))
-        t4.pack(fill="both", expand=True, pady=(0, 8))
+        t4.pack(fill="both", expand=True, pady=(0, 6))
 
         hk_frame = ttk.Frame(t4)
         hk_frame.pack(fill="both", expand=True)
         self.hk_tree = ttk.Treeview(
             hk_frame, columns=("action", "binding"),
-            show="headings", selectmode="browse", height=6,
+            show="headings", selectmode="browse", height=4,
         )
         self.hk_tree.heading("action", text="Action")
         self.hk_tree.heading("binding", text="Binding")
@@ -348,14 +355,8 @@ class SettingsDialog(tk.Toplevel):
         ttk.Label(
             t4, text="Double-click a row to rebind",
             font=UI_SMALL, foreground=FG_MUTED,
-        ).pack(anchor="w", pady=(4, 0))
+        ).pack(anchor="w", pady=(2, 0))
         self._populate_hotkeys()
-
-        btns = ttk.Frame(outer)
-        btns.pack(fill="x")
-        ttk.Button(btns, text="Reset", command=self._reset).pack(side="left")
-        ttk.Button(btns, text="Close", command=self.destroy).pack(side="right")
-        ttk.Button(btns, text="Save", command=self._save).pack(side="right", padx=(0, 4))
 
     def _populate_hotkeys(self):
         self.hk_tree.delete(*self.hk_tree.get_children())
@@ -573,13 +574,13 @@ class StressApp:
             sw = self.root.winfo_screenwidth()
             sh = self.root.winfo_screenheight()
             w = min(660, int(sw * 0.9))
-            h = min(800, int(sh * 0.92))
+            h = min(660, int(sh * 0.8))
             x = max(20, (sw - w) // 2)
-            y = max(20, (sh - h) // 6)
+            y = max(20, (sh - h) // 8)
             self.root.geometry(f"{w}x{h}+{x}+{y}")
         except Exception:
-            self.root.geometry("660x800")
-        self.root.minsize(520, 560)
+            self.root.geometry("660x660")
+        self.root.minsize(520, 500)
 
         self._setup_style()
         self._build_menubar()
@@ -726,9 +727,11 @@ class StressApp:
 
     def _build_ui(self):
         self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(2, weight=4)
+        # opts row stays compact; bottom notebook absorbs extra space
+        self.root.rowconfigure(2, weight=0)
         self.root.rowconfigure(4, weight=1)
 
+        # ---- top: solution + generator ----
         top = ttk.Frame(self.root, padding=(6, 6, 6, 0))
         top.grid(row=0, column=0, sticky="ew")
         top.columnconfigure(1, weight=1)
@@ -747,6 +750,7 @@ class StressApp:
         ttk.Button(top, text="\u2026", width=2, command=self._browse_generator).grid(row=1, column=2, pady=(4, 0))
         ttk.Button(top, text="\u25be", width=2, command=lambda: self._path_menu(self.gen_var, "generator")).grid(row=1, column=3, padx=(2, 0), pady=(4, 0))
 
+        # ---- mode notebook ----
         mode_wrap = ttk.Frame(self.root, padding=(6, 6, 6, 0))
         mode_wrap.grid(row=1, column=0, sticky="ew")
         mode_wrap.columnconfigure(0, weight=1)
@@ -759,11 +763,10 @@ class StressApp:
         self._build_checker_tab()
         self._build_interactive_tab()
 
+        # ---- options ----
         opts = ttk.Frame(self.root, padding=(6, 6, 6, 0))
-        opts.grid(row=2, column=0, sticky="nsew")
+        opts.grid(row=2, column=0, sticky="ew")
         opts.columnconfigure(1, weight=1)
-        opts.columnconfigure(3, weight=1)
-        opts.rowconfigure(2, weight=1)
 
         ttk.Label(opts, text="Seed", width=10).grid(row=0, column=0, sticky="w")
         seed_frame = ttk.Frame(opts)
@@ -776,7 +779,7 @@ class StressApp:
         self.randomize_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             opts, text="Randomize per iteration", variable=self.randomize_var,
-        ).grid(row=0, column=2, columnspan=2, sticky="w")
+        ).grid(row=0, column=2, columnspan=2, sticky="w", padx=(8, 0))
 
         ttk.Label(opts, text="Gen args", width=10).grid(row=1, column=0, sticky="w", pady=(4, 0))
         self.gen_args_var = tk.StringVar()
@@ -784,24 +787,26 @@ class StressApp:
             row=1, column=1, columnspan=3, sticky="ew", padx=(0, 4), pady=(4, 0),
         )
 
-        ttk.Label(opts, text="Max fails", width=10).grid(row=3, column=0, sticky="w", pady=(4, 0))
+        # Row 2: Max fails + Stop on fail + Skip compile — all in one line
+        row2 = ttk.Frame(opts)
+        row2.grid(row=2, column=0, columnspan=4, sticky="ew", pady=(4, 0))
+        ttk.Label(row2, text="Max fails", width=10).pack(side="left")
         self.max_fails_var = tk.StringVar(value=str(self.gcfg.get("max_fails", 50)))
-        ttk.Entry(opts, textvariable=self.max_fails_var, width=8).grid(
-            row=3, column=1, sticky="w", pady=(4, 0),
-        )
+        ttk.Entry(row2, textvariable=self.max_fails_var, width=6).pack(side="left")
+
         self.stop_var = tk.BooleanVar(value=bool(self.gcfg.get("stop_on_fail", True)))
         ttk.Checkbutton(
-            opts, text="Stop on first fail", variable=self.stop_var,
-        ).grid(row=3, column=2, columnspan=2, sticky="w", pady=(4, 0))
+            row2, text="Stop on first fail", variable=self.stop_var,
+        ).pack(side="left", padx=(12, 0))
 
         self.no_compile_var = tk.BooleanVar(
             value=bool(self.gcfg.get("no_compile", False))
         )
         ttk.Checkbutton(
-            opts, text="Skip compile (use existing binaries)",
-            variable=self.no_compile_var,
-        ).grid(row=4, column=0, columnspan=4, sticky="w", pady=(2, 0))
+            row2, text="Skip compile", variable=self.no_compile_var,
+        ).pack(side="left", padx=(12, 0))
 
+        # ---- action row ----
         action = ttk.Frame(self.root, padding=(6, 6, 6, 0))
         action.grid(row=3, column=0, sticky="ew")
         action.columnconfigure(2, weight=1)
@@ -815,6 +820,7 @@ class StressApp:
         self.progress_var = tk.StringVar(value="ready")
         ttk.Label(action, textvariable=self.progress_var, font=UI_SMALL).grid(row=0, column=2, sticky="w")
 
+        # ---- bottom notebook ----
         bottom = ttk.Frame(self.root, padding=(6, 6, 6, 6))
         bottom.grid(row=4, column=0, sticky="nsew")
         bottom.columnconfigure(0, weight=1)
@@ -823,13 +829,14 @@ class StressApp:
         self.bottom_nb = ttk.Notebook(bottom)
         self.bottom_nb.grid(row=0, column=0, sticky="nsew")
 
+        # ---- Log tab ----
         log_frame = ttk.Frame(self.bottom_nb)
         self.bottom_nb.add(log_frame, text="Log")
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
 
         self.log_text = ScrolledText(
-            log_frame, wrap="none", font=MONO, state="disabled", height=6,
+            log_frame, wrap="none", font=MONO, state="disabled", height=5,
         )
         self.log_text.grid(row=0, column=0, sticky="nsew")
         self.log_text.tag_configure("OK", foreground=OK_FG)
@@ -841,15 +848,15 @@ class StressApp:
         self.log_text.tag_configure("SYS", foreground=SYS_FG)
         self.log_text.tag_configure("LOG", foreground=LOG_FG)
 
+        # ---- Failures tab ----
         fails_frame = ttk.Frame(self.bottom_nb)
         self.bottom_nb.add(fails_frame, text="Failures")
         fails_frame.columnconfigure(0, weight=1)
-        fails_frame.rowconfigure(0, weight=1)
         fails_frame.rowconfigure(2, weight=1)
 
         self.fails_tree = ttk.Treeview(
             fails_frame, columns=("id", "seed", "status", "time"),
-            show="headings", selectmode="browse", height=5,
+            show="headings", selectmode="browse", height=4,
         )
         self.fails_tree.heading("id", text="#")
         self.fails_tree.heading("seed", text="Seed")
@@ -859,7 +866,7 @@ class StressApp:
         self.fails_tree.column("seed", width=120, anchor="w")
         self.fails_tree.column("status", width=80, anchor="w")
         self.fails_tree.column("time", width=100, anchor="e")
-        self.fails_tree.grid(row=0, column=0, sticky="nsew")
+        self.fails_tree.grid(row=0, column=0, sticky="ew")
         self.fails_tree.tag_configure("WA", foreground=WA_FG)
         self.fails_tree.tag_configure("TLE", foreground=TLE_FG)
         self.fails_tree.tag_configure("RTE", foreground=RTE_FG)
@@ -867,22 +874,23 @@ class StressApp:
         self.fails_tree.bind("<Double-1>", lambda e: self._view_selected_fail())
 
         fbar = ttk.Frame(fails_frame)
-        fbar.grid(row=1, column=0, sticky="ew", pady=(4, 0))
-        ttk.Button(fbar, text="View details", command=self._view_selected_fail).pack(side="left")
+        fbar.grid(row=1, column=0, sticky="ew", pady=(2, 0))
+        ttk.Button(fbar, text="View", command=self._view_selected_fail).pack(side="left")
         ttk.Button(fbar, text="Add to runner", command=self._add_selected_to_runner).pack(side="left", padx=(4, 0))
         ttk.Button(fbar, text="Open folder", command=self._open_fails_folder).pack(side="left", padx=(4, 0))
         ttk.Button(fbar, text="Clear", command=self._clear_fails).pack(side="right")
 
         self.fail_preview_nb = ttk.Notebook(fails_frame)
-        self.fail_preview_nb.grid(row=2, column=0, sticky="nsew", pady=(4, 0))
+        self.fail_preview_nb.grid(row=2, column=0, sticky="nsew", pady=(2, 0))
 
         self.fail_preview_widgets = {}
         for label in ("Input", "Expected", "Got"):
-            t = ScrolledText(self.fail_preview_nb, wrap="none", font=MONO, height=5)
+            t = ScrolledText(self.fail_preview_nb, wrap="none", font=MONO, height=4)
             t.configure(state="disabled")
             self.fail_preview_nb.add(t, text=label)
             self.fail_preview_widgets[label.lower()] = t
 
+        # ---- Preview tab ----
         prev_frame = ttk.Frame(self.bottom_nb)
         self.bottom_nb.add(prev_frame, text="Preview")
         prev_frame.columnconfigure(0, weight=1)
@@ -900,9 +908,10 @@ class StressApp:
         ttk.Button(pbar, text="Reload", width=8, command=self._reload_preview).pack(side="left", padx=(4, 0))
         ttk.Button(pbar, text="Open with \u25be", command=self._preview_open_menu).pack(side="right")
 
-        self.preview_text = ScrolledText(prev_frame, wrap="none", font=MONO, state="disabled")
-        self.preview_text.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
+        self.preview_text = ScrolledText(prev_frame, wrap="none", font=MONO, state="disabled", height=5)
+        self.preview_text.grid(row=1, column=0, sticky="nsew", pady=(2, 0))
 
+        # ---- status bar ----
         self.status_var = tk.StringVar(value="ready")
         status = ttk.Label(
             self.root, textvariable=self.status_var,
