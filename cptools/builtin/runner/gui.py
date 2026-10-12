@@ -157,71 +157,45 @@ def _copy_to_clipboard(widget, app):
     app.set_status("copied")
 
 
+def infer_output_file(input_name):
+    if not input_name:
+        return ""
+    s = str(input_name).replace("\\", "/")
+    if "/" in s:
+        folder, fname = s.rsplit("/", 1)
+        folder = folder + "/"
+    else:
+        folder, fname = "", s
+    if "." in fname:
+        stem, ext = fname.rsplit(".", 1)
+        if not stem:
+            return folder + fname + ".out"
+        if ext.lower() == "out":
+            return f"{folder}{stem}.txt"
+        if ext.isupper():
+            return f"{folder}{stem}.OUT"
+        return f"{folder}{stem}.out"
+    return f"{folder}{fname}.out"
+
+
 # =================================================================== hotkey parse
 
-_DISPLAY_ALIASES = {
-    "comma": ",",
-    "period": ".",
-    "slash": "/",
-    "backslash": "\\",
-    "semicolon": ";",
-    "apostrophe": "'",
-    "bracketleft": "[",
-    "bracketright": "]",
-    "minus": "-",
-    "equal": "=",
-    "grave": "`",
-    "space": "Space",
-    "Return": "Enter",
-    "Escape": "Esc",
-}
-
-# canonical keysym → display form (user-facing)
 _KEY_DISPLAY = {
-    "comma": ",",
-    "period": ".",
-    "slash": "/",
-    "backslash": "\\",
-    "semicolon": ";",
-    "apostrophe": "'",
-    "bracketleft": "[",
-    "bracketright": "]",
-    "minus": "-",
-    "equal": "=",
-    "grave": "`",
-    "space": "Space",
-    "Return": "Enter",
-    "Escape": "Esc",
-    "Tab": "Tab",
-    "BackSpace": "Backspace",
-    "Delete": "Delete",
-    "Insert": "Insert",
-    "Home": "Home",
-    "End": "End",
-    "Prior": "PageUp",
-    "Next": "PageDown",
-    "Up": "Up",
-    "Down": "Down",
-    "Left": "Left",
-    "Right": "Right",
+    "comma": ",", "period": ".", "slash": "/", "backslash": "\\",
+    "semicolon": ";", "apostrophe": "'", "bracketleft": "[",
+    "bracketright": "]", "minus": "-", "equal": "=", "grave": "`",
+    "space": "Space", "Return": "Enter", "Escape": "Esc",
+    "Tab": "Tab", "BackSpace": "Backspace", "Delete": "Delete",
+    "Insert": "Insert", "Home": "Home", "End": "End",
+    "Prior": "PageUp", "Next": "PageDown",
+    "Up": "Up", "Down": "Down", "Left": "Left", "Right": "Right",
 }
 
-# display → keysym for parsing back
 _DISPLAY_TO_KEY = {
-    ",": "comma",
-    ".": "period",
-    "/": "slash",
-    "\\": "backslash",
-    ";": "semicolon",
-    "'": "apostrophe",
-    "[": "bracketleft",
-    "]": "bracketright",
-    "-": "minus",
-    "=": "equal",
-    "`": "grave",
-    "Space": "space",
-    "Enter": "Return",
-    "Esc": "Escape",
+    ",": "comma", ".": "period", "/": "slash", "\\": "backslash",
+    ";": "semicolon", "'": "apostrophe", "[": "bracketleft",
+    "]": "bracketright", "-": "minus", "=": "equal", "`": "grave",
+    "Space": "space", "Enter": "Return", "Esc": "Escape",
 }
 
 _MOD_KEYSYM = {
@@ -233,27 +207,13 @@ _MOD_KEYSYM = {
 }
 
 _SHIFT_MAP = {
-    "exclam": "1",
-    "at": "2",
-    "numbersign": "3",
-    "dollar": "4",
-    "percent": "5",
-    "asciicircum": "6",
-    "ampersand": "7",
-    "asterisk": "8",
-    "parenleft": "9",
-    "parenright": "0",
-    "underscore": "-",
-    "plus": "=",
-    "braceleft": "[",
-    "braceright": "]",
-    "bar": "\\",
-    "colon": ";",
-    "quotedbl": "'",
-    "less": ",",
-    "greater": ".",
-    "question": "/",
-    "asciitilde": "`",
+    "exclam": "1", "at": "2", "numbersign": "3", "dollar": "4",
+    "percent": "5", "asciicircum": "6", "ampersand": "7",
+    "asterisk": "8", "parenleft": "9", "parenright": "0",
+    "underscore": "-", "plus": "=", "braceleft": "[",
+    "braceright": "]", "bar": "\\", "colon": ";",
+    "quotedbl": "'", "less": ",", "greater": ".",
+    "question": "/", "asciitilde": "`",
 }
 
 _SHIFT_KEY_REVERSE = {v: k for k, v in _SHIFT_MAP.items()}
@@ -264,8 +224,7 @@ def _modifier_from_keysym(ks):
 
 
 def _mod_order(mods):
-    order = ["Ctrl", "Shift", "Alt", "Super"]
-    return [m for m in order if m in mods]
+    return [m for m in ("Ctrl", "Shift", "Alt", "Super") if m in mods]
 
 
 def _key_display_and_shift(ks):
@@ -283,10 +242,8 @@ def _parse_hotkey(s):
     parts = [p.strip() for p in s.split("+") if p.strip()]
     if not parts:
         return None
-
     mods = []
     key = parts[-1]
-
     for m in parts[:-1]:
         ml = m.lower()
         if ml in ("ctrl", "control"):
@@ -299,16 +256,12 @@ def _parse_hotkey(s):
             mods.append("Super")
         else:
             return None
-
     key = _DISPLAY_TO_KEY.get(key, key)
-
     if "Shift" in mods and key in _SHIFT_KEY_REVERSE:
         key = _SHIFT_KEY_REVERSE[key]
         mods = [m for m in mods if m != "Shift"]
-
     if len(key) == 1 and key.isalpha():
         key = key.lower()
-
     tk_binding = "-".join(mods + [key])
     return f"<{tk_binding}>"
 
@@ -350,9 +303,9 @@ class CaptureDialog(tk.Toplevel):
         self._mods = set()
 
         self.title(f"Rebind: {action_label}")
-        self.geometry("380x170")
         self.transient(parent)
         self.resizable(False, False)
+        self._center_on_parent(parent, 380, 170)
 
         frame = ttk.Frame(self, padding=12)
         frame.pack(fill="both", expand=True)
@@ -389,6 +342,27 @@ class CaptureDialog(tk.Toplevel):
         self.bind("<FocusOut>", self._on_focus_out)
         self.after(50, self._focus)
         self.grab_set()
+
+    def _center_on_parent(self, parent, w, h):
+        try:
+            parent.update_idletasks()
+            pw = parent.winfo_width()
+            ph = parent.winfo_height()
+            if pw <= 1:
+                pw = parent.winfo_reqwidth()
+            if ph <= 1:
+                ph = parent.winfo_reqheight()
+            px = parent.winfo_rootx()
+            py = parent.winfo_rooty()
+            x = px + (pw - w) // 2
+            y = py + (ph - h) // 3
+            sw = self.winfo_screenwidth()
+            sh = self.winfo_screenheight()
+            x = max(0, min(x, sw - w))
+            y = max(0, min(y, sh - h))
+            self.geometry(f"{w}x{h}+{x}+{y}")
+        except Exception:
+            self.geometry(f"{w}x{h}")
 
     def _focus(self):
         try:
@@ -449,6 +423,7 @@ class CaptureDialog(tk.Toplevel):
         self.result = None
         self.destroy()
 
+
 # =================================================================== SettingsDialog
 
 class SettingsDialog(tk.Toplevel):
@@ -456,9 +431,9 @@ class SettingsDialog(tk.Toplevel):
         super().__init__(parent)
         self.app = app
         self.title("Settings")
-        self.geometry("460x480")
         self.transient(parent)
         self.minsize(400, 380)
+        self._center_on_parent(parent, 460, 480)
 
         self._hotkeys = dict(app.cfg.get("hotkeys") or DEFAULT_HOTKEYS)
 
@@ -502,6 +477,27 @@ class SettingsDialog(tk.Toplevel):
 
         self._populate()
         self.grab_set()
+
+    def _center_on_parent(self, parent, w, h):
+        try:
+            parent.update_idletasks()
+            pw = parent.winfo_width()
+            ph = parent.winfo_height()
+            if pw <= 1:
+                pw = parent.winfo_reqwidth()
+            if ph <= 1:
+                ph = parent.winfo_reqheight()
+            px = parent.winfo_rootx()
+            py = parent.winfo_rooty()
+            x = px + (pw - w) // 2
+            y = py + (ph - h) // 3
+            sw = self.winfo_screenwidth()
+            sh = self.winfo_screenheight()
+            x = max(0, min(x, sw - w))
+            y = max(0, min(y, sh - h))
+            self.geometry(f"{w}x{h}+{x}+{y}")
+        except Exception:
+            self.geometry(f"{w}x{h}")
 
     def _populate(self):
         self.tree.delete(*self.tree.get_children())
@@ -577,6 +573,9 @@ class SessionTab(ttk.Frame):
         self._save_timer = None
         self._suppress_change = False
         self._suppress_io = False
+        self._last_auto_output = None
+        self._io_enabled = False
+        self._io_buttons = []
         self.test_outputs = {}
 
         self._build_ui()
@@ -681,82 +680,107 @@ class SessionTab(ttk.Frame):
         )
 
         self.input_mode_var = tk.StringVar(value="stdin")
-        in_cb = ttk.Combobox(
+        self._in_cb = ttk.Combobox(
             mode_box, textvariable=self.input_mode_var,
             values=["stdin", "file"], width=8,
             state="readonly", font=UI,
         )
-        in_cb.grid(row=0, column=1, padx=(6, 6), pady=(0, 2))
-        in_cb.bind("<<ComboboxSelected>>", self._on_io_change)
+        self._in_cb.grid(row=0, column=1, padx=(6, 6), pady=(0, 2))
+        self._in_cb.bind("<<ComboboxSelected>>", self._on_io_mode_change)
 
         self.input_file_var = tk.StringVar(value="input.txt")
         self.input_file_entry = ttk.Entry(
             mode_box, textvariable=self.input_file_var, font=UI,
         )
         self.input_file_entry.grid(row=0, column=2, sticky="ew", pady=(0, 2))
-        self.input_file_var.trace_add("write", self._on_io_change)
+        self.input_file_var.trace_add("write", self._on_input_file_change)
 
         ttk.Label(mode_box, text="Output", font=UI, anchor="w", width=7).grid(
             row=1, column=0, sticky="w"
         )
 
         self.output_mode_var = tk.StringVar(value="stdout")
-        out_cb = ttk.Combobox(
+        self._out_cb = ttk.Combobox(
             mode_box, textvariable=self.output_mode_var,
             values=["stdout", "file"], width=8,
             state="readonly", font=UI,
         )
-        out_cb.grid(row=1, column=1, padx=(6, 6))
-        out_cb.bind("<<ComboboxSelected>>", self._on_io_change)
+        self._out_cb.grid(row=1, column=1, padx=(6, 6))
+        self._out_cb.bind("<<ComboboxSelected>>", self._on_io_mode_change)
 
         self.output_file_var = tk.StringVar(value="output.txt")
         self.output_file_entry = ttk.Entry(
             mode_box, textvariable=self.output_file_var, font=UI,
         )
         self.output_file_entry.grid(row=1, column=2, sticky="ew")
-        self.output_file_var.trace_add("write", self._on_io_change)
+        self.output_file_var.trace_add("write", self._on_output_file_change)
 
+        # Input section
         h1 = ttk.Frame(io)
         h1.grid(row=1, column=0, sticky="ew")
         ttk.Label(h1, text="Input", font=UI_BOLD).pack(side="left")
-        ttk.Button(h1, text="Load", width=5,
-                   command=lambda: self._load_into(self.input_text)
-                   ).pack(side="right", padx=(2, 0))
-        ttk.Button(h1, text="Clear", width=5,
-                   command=lambda: self._clear(self.input_text)
-                   ).pack(side="right", padx=2)
+        self._btn_load_input = ttk.Button(
+            h1, text="Load", width=5,
+            command=lambda: self._load_into(self.input_text),
+        )
+        self._btn_load_input.pack(side="right", padx=(2, 0))
+        self._btn_clear_input = ttk.Button(
+            h1, text="Clear", width=5,
+            command=lambda: self._clear(self.input_text),
+        )
+        self._btn_clear_input.pack(side="right", padx=2)
 
         self.input_text = self._mk_text(io, height=4)
         self.input_text.grid(row=2, column=0, sticky="nsew", pady=(1, 4))
 
+        # Expected section
         h2 = ttk.Frame(io)
         h2.grid(row=3, column=0, sticky="ew")
         ttk.Label(h2, text="Expected", font=UI_BOLD).pack(side="left")
-        ttk.Button(h2, text="Load", width=5,
-                   command=lambda: self._load_into(self.expected_text)
-                   ).pack(side="right", padx=(2, 0))
-        ttk.Button(h2, text="Clear", width=5,
-                   command=lambda: self._clear(self.expected_text)
-                   ).pack(side="right", padx=2)
+        self._btn_load_expected = ttk.Button(
+            h2, text="Load", width=5,
+            command=lambda: self._load_into(self.expected_text),
+        )
+        self._btn_load_expected.pack(side="right", padx=(2, 0))
+        self._btn_clear_expected = ttk.Button(
+            h2, text="Clear", width=5,
+            command=lambda: self._clear(self.expected_text),
+        )
+        self._btn_clear_expected.pack(side="right", padx=2)
 
         self.expected_text = self._mk_text(io, height=4)
         self.expected_text.grid(row=4, column=0, sticky="nsew", pady=(1, 4))
 
+        # Output section
         h3 = ttk.Frame(io)
         h3.grid(row=5, column=0, sticky="ew")
         ttk.Label(h3, text="Output", font=UI_BOLD).pack(side="left")
         self.match_label = ttk.Label(h3, text="", font=UI_SMALL, foreground=FG_MUTED)
         self.match_label.pack(side="left", padx=(6, 0))
-        ttk.Button(h3, text="Clear", width=5,
-                   command=self._clear_output).pack(side="right", padx=(2, 0))
-        ttk.Button(h3, text="Save", width=5,
-                   command=self._save_output).pack(side="right", padx=2)
-        ttk.Button(h3, text="Copy", width=5,
-                   command=lambda: _copy_to_clipboard(self.got_text, self.app)
-                   ).pack(side="right", padx=2)
+        self._btn_clear_output = ttk.Button(
+            h3, text="Clear", width=5, command=self._clear_output,
+        )
+        self._btn_clear_output.pack(side="right", padx=(2, 0))
+        self._btn_save_output = ttk.Button(
+            h3, text="Save", width=5, command=self._save_output,
+        )
+        self._btn_save_output.pack(side="right", padx=2)
+        self._btn_copy_output = ttk.Button(
+            h3, text="Copy", width=5,
+            command=lambda: _copy_to_clipboard(self.got_text, self.app),
+        )
+        self._btn_copy_output.pack(side="right", padx=2)
 
         self.got_text = self._mk_text(io, height=5, readonly=True)
         self.got_text.grid(row=6, column=0, sticky="nsew", pady=(1, 0))
+
+        # Collect buttons controlled by test-selection state
+        self._io_buttons = [
+            self._btn_load_input, self._btn_clear_input,
+            self._btn_load_expected, self._btn_clear_expected,
+            self._btn_clear_output, self._btn_save_output,
+            self._btn_copy_output,
+        ]
 
     def _build_source_tab(self):
         src = ttk.Frame(self.inner, padding=3)
@@ -791,9 +815,67 @@ class SessionTab(ttk.Frame):
 
     # -------------------------------------------------------- io mode
 
-    def _on_io_change(self, *_):
+    def _update_io_entry_state(self):
+        if not self._io_enabled:
+            for w in (self._in_cb, self._out_cb,
+                      self.input_file_entry, self.output_file_entry):
+                try:
+                    w.configure(state="disabled")
+                except tk.TclError:
+                    pass
+            return
+
+        try:
+            self._in_cb.configure(state="readonly")
+            self._out_cb.configure(state="readonly")
+        except tk.TclError:
+            pass
+
+        in_state = "normal" if self.input_mode_var.get() == "file" else "disabled"
+        out_state = "normal" if self.output_mode_var.get() == "file" else "disabled"
+        try:
+            self.input_file_entry.configure(state=in_state)
+            self.output_file_entry.configure(state=out_state)
+        except tk.TclError:
+            pass
+
+    def _set_io_enabled(self, enabled):
+        self._io_enabled = bool(enabled)
+        self._update_io_entry_state()
+        state = "normal" if enabled else "disabled"
+        for b in self._io_buttons:
+            try:
+                b.configure(state=state)
+            except tk.TclError:
+                pass
+
+    def _on_io_mode_change(self, *_):
+        self._update_io_entry_state()
+        self._save_io_config()
+
+    def _on_input_file_change(self, *_):
+        if self._suppress_io:
+            return
+        new_val = self.input_file_var.get()
+        old_out = self.output_file_var.get()
+        if not old_out or old_out == self._last_auto_output:
+            inferred = infer_output_file(new_val)
+            self._suppress_io = True
+            try:
+                self.output_file_var.set(inferred)
+            finally:
+                self._suppress_io = False
+            self._last_auto_output = inferred
+        self._save_io_config()
+
+    def _on_output_file_change(self, *_):
+        if self._suppress_io:
+            return
+        self._last_auto_output = None
+        self._save_io_config()
+
+    def _save_io_config(self):
         if self._suppress_io or not self.tests_data:
-            self._update_io_entry_state()
             return
         self.tests_data["io"] = {
             "input": self.input_mode_var.get(),
@@ -802,16 +884,6 @@ class SessionTab(ttk.Frame):
             "output_file": self.output_file_var.get().strip() or "output.txt",
         }
         save(self.tests_data)
-        self._update_io_entry_state()
-
-    def _update_io_entry_state(self):
-        in_state = "normal" if self.input_mode_var.get() == "file" else "disabled"
-        out_state = "normal" if self.output_mode_var.get() == "file" else "disabled"
-        try:
-            self.input_file_entry.configure(state=in_state)
-            self.output_file_entry.configure(state=out_state)
-        except tk.TclError:
-            pass
 
     def _load_io_config(self):
         self._suppress_io = True
@@ -821,6 +893,7 @@ class SessionTab(ttk.Frame):
             self.output_mode_var.set(io.get("output", "stdout"))
             self.input_file_var.set(io.get("input_file", "input.txt"))
             self.output_file_var.set(io.get("output_file", "output.txt"))
+            self._last_auto_output = self.output_file_var.get()
         finally:
             self._suppress_io = False
         self._update_io_entry_state()
@@ -961,6 +1034,7 @@ class SessionTab(ttk.Frame):
             self._disable_editors()
         finally:
             self._suppress_change = False
+        self._set_io_enabled(False)
         self.match_label.configure(text="no test selected")
         self.current_test_id = None
 
@@ -987,6 +1061,7 @@ class SessionTab(ttk.Frame):
                 self._disable_editors()
             finally:
                 self._suppress_change = False
+            self._set_io_enabled(False)
             self.current_test_id = None
             self.match_label.configure(text="no test selected")
             return
@@ -994,10 +1069,12 @@ class SessionTab(ttk.Frame):
         if n > 1:
             self.current_test_id = None
             self._disable_editors()
+            self._set_io_enabled(False)
             self.match_label.configure(text=f"{n} selected")
             return
 
         self._enable_editors()
+        self._set_io_enabled(True)
 
         tid = int(sel[0])
         t = next((x for x in self.tests_data["tests"] if x["id"] == tid), None)
@@ -1386,7 +1463,7 @@ class RunnerApp:
         self._bound = {}
 
         self.root.title("CP Runner")
-        self.root.geometry("560x660")
+        self._center_window(560, 660)
         self.root.minsize(460, 500)
 
         self._setup_style()
@@ -1400,6 +1477,18 @@ class RunnerApp:
             self.add_tab()
 
         self.root.protocol("WM_DELETE_WINDOW", self._quit)
+
+    def _center_window(self, w, h):
+        try:
+            sw = self.root.winfo_screenwidth()
+            sh = self.root.winfo_screenheight()
+            w = min(w, int(sw * 0.9))
+            h = min(h, int(sh * 0.85))
+            x = max(20, (sw - w) // 2)
+            y = max(20, (sh - h) // 8)
+            self.root.geometry(f"{w}x{h}+{x}+{y}")
+        except Exception:
+            self.root.geometry(f"{w}x{h}")
 
     def _setup_style(self):
         style = ttk.Style()
