@@ -41,9 +41,9 @@ Launch with `cpt run gui [source]`. Features:
 - Multiple tabs (one per source file)
 - Test cases stored per source
 - Auto-save edits (400 ms debounce)
-- File-based I/O mode (for solutions that use `freopen`)
+- I/O mode: stdin/stdout or file (per test tab)
 - File drag and drop
-- Recent files menu
+- Recent files menu (shared with `stress`)
 - Customizable hotkeys (File → Settings)
 
 ### Default hotkeys
@@ -66,21 +66,23 @@ Change hotkeys in Settings dialog. Bindings are saved in the plugin config.
 
 ### I/O mode
 
-By default, the solution reads from stdin and writes to stdout. If your
-solution uses `freopen("problem.inp", ...)`, switch to file mode in the
-I/O panel and set the input/output file names.
+Each test tab has an I/O panel:
 
-Files are created in a per-source work directory under the plugin cache,
-not next to the source file.
+- **stdin/stdout** (default) — input via stdin pipe, output from stdout
+- **file** — input written to a file, solution's `freopen()` reads it
 
-## Tests storage
+Input and output file names are per-tab. Changing the input name auto-fills
+the output name (`.inp` → `.out`, `.INP` → `.OUT`, unknown ext → `.out`).
+Manual edits to the output name stop the auto-fill.
 
-Test cases are stored per source under:
+Files are created in a per-test work directory under the plugin cache, not
+next to the source file.
 
-- Windows: `%LOCALAPPDATA%\cptools\data\runner\tests\<hash>.json`
-- Linux/macOS: `~/.local/share/cptools/data/runner/tests/<hash>.json`
+## Test storage
 
-Each entry contains `source`, `tests`, and `io` (mode + file names).
+Test cases are stored per source under `<data_root>/data/runner/tests/<hash>.json`.
+
+Each entry contains `source`, `tests`, and `io`.
 
 ## Requirements
 
@@ -98,3 +100,8 @@ cpt run test add D:\CP\aplusb.cpp t1.in t1.out
 cpt run test D:\CP\aplusb.cpp
 cpt run gui   D:\CP\aplusb.cpp
 ```
+
+## Integration
+
+Fail cases from the `stress` plugin can be added to runner tests via the
+stress GUI (Failures tab → "Add to runner" / "Add all to runner").

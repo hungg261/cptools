@@ -1,8 +1,10 @@
 # CPTools Protocol v1
 
+Specification for plugin developers.
+
 ## Overview
 
-CPTools is a host that discovers plugins and runs them as subprocesses.
+CPTools discovers plugins and runs them as subprocesses.
 
 The host does NOT:
 
@@ -18,9 +20,9 @@ The host DOES:
 - spawn the plugin as a subprocess
 - propagate the exit code
 
-A plugin is any directory containing `cptools-plugin.toml` and an executable.
-
 ## Plugin layout
+
+A plugin is any directory containing `cptools-plugin.toml` and an executable:
 
 ```
 my-plugin/
@@ -42,6 +44,13 @@ name = "my-plugin"               # unique, lowercase, no spaces
 exec = ["python", "main.py"]     # argv to invoke the plugin
 ```
 
+`exec` is a list of strings. Host runs it directly (no shell). Relative paths
+resolve against the plugin directory.
+
+On Windows, `.py` entry points are auto-prefixed with the current Python
+interpreter. Prefer `exec = ["python", "main.py"]` over `exec = ["main.py"]`
+for portability.
+
 ### Optional
 
 ```toml
@@ -58,15 +67,15 @@ hello = "Say hi"                 # command name -> help text
 ## Aliases
 
 - Each alias must be unique across all loaded plugins.
-- Aliases cannot be reserved names: `plugin`, `help`, `version`,
+- Aliases cannot be reserved names: `plugin`, `self`, `help`, `version`,
   `--json`, `--help`, `-h`, `-v`.
 - If an alias collides with a plugin name, the plugin name wins.
-- If two plugins declare the same alias, the first loaded wins.
-  A warning is printed to stderr.
+- If two plugins declare the same alias, the first loaded wins. A warning
+  is printed to stderr.
 
 ## Environment variables
 
-The host sets these variables before spawning the plugin:
+The host sets these before spawning the plugin:
 
 | Variable | Meaning |
 |---|---|
@@ -77,13 +86,30 @@ The host sets these variables before spawning the plugin:
 | `CPTOOLS_PLUGIN_CACHE_DIR` | cache, safe to delete |
 | `CPTOOLS_OUTPUT` | `human` or `json` |
 | `CPTOOLS_PROTOCOL` | protocol version |
+| `CPTOOLS_CWD` | directory where the user invoked `cpt` |
+| `PYTHONIOENCODING` | forced to `utf-8` if not already set |
 
-All three directories are guaranteed to exist before the plugin runs.
+All three directories exist before the plugin runs.
+
+Use `CPTOOLS_CWD` when relative paths (from user input) need to resolve
+against the user's shell, not the plugin's own directory.
 
 ## Arguments
 
-The host forwards remaining `argv` to the plugin unchanged.
-The plugin is responsible for parsing its own arguments.
+The host forwards remaining `argv` to the plugin unchanged. The plugin is
+responsible for parsing its own arguments.
+
+Example:
+
+```
+cpt my-plugin hello world
+```
+
+Spawns:
+
+```
+my-plugin-exec hello world
+```
 
 ## Exit codes
 
@@ -94,15 +120,14 @@ The plugin is responsible for parsing its own arguments.
 | 2 | usage error |
 | 127 | plugin could not be run |
 
-Other codes are plugin-defined. The host propagates the exit code
-unchanged.
+Other codes are plugin-defined. The host propagates the exit code unchanged.
 
 ## Output
 
-Default (`CPTOOLS_OUTPUT=human`): free-form text. The host passes it
-through unchanged.
+Default (`CPTOOLS_OUTPUT=human`): free-form text. The host passes it through
+unchanged.
 
-When `CPTOOLS_OUTPUT=json`: JSON Lines recommended, one object per line.
+When `CPTOOLS_OUTPUT=json`: JSON Lines recommended, one object per line:
 
 ```
 {"type": "item", "id": "1923A", "url": "..."}
@@ -115,7 +140,7 @@ This is not enforced. Plain text is always accepted and shown as-is.
 
 The host scans two locations in order:
 
-1. User plugins: `<user_data_dir>/cptools/plugins/<name>/`
+1. User plugins: `<data_root>/plugins/<name>/`
 2. Builtin plugins: `<package>/cptools/builtin/<name>/`
 
 User plugins override builtin plugins with the same name.
@@ -125,6 +150,8 @@ Platform-specific paths (via `platformdirs`):
 - Windows: `%LOCALAPPDATA%\cptools\plugins\`
 - Linux: `~/.local/share/cptools/plugins/`
 - macOS: `~/Library/Application Support/cptools/plugins/`
+
+Run `cpt self paths` to see the exact paths on your machine.
 
 ## Protocol version
 
@@ -137,14 +164,14 @@ Plugins declaring `protocol > 1` are skipped with a warning on stderr.
 
 The host guarantees:
 
-- All `CPTOOLS_*` env vars listed above are set.
+- All `CPTOOLS_*` variables are set.
 - Config, data, and cache directories exist.
 - The working directory is the plugin directory.
-- Exit code is propagated unchanged.
 - Arguments after the plugin name are forwarded unchanged.
+- Exit code is propagated unchanged.
 
 The plugin must:
 
 - Not require the host to parse its arguments.
-- Exit cleanly and return a meaningful exit code.
-- Not assume any particular current working directory other than its own.
+- Return a meaningful exit code.
+- Not assume a current working directory other than its own.

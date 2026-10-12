@@ -17,7 +17,7 @@ cpt link open <url|oj|--data|--config|--problem>
 cpt link open-file <id> [opts]           open or delete a saved file
 cpt link rm <id> [opts]                  delete file(s) and entry
 cpt link undo [-y] [--keep-entry]        delete the most recently created file
-cpt link editors [list|detect|known|set|unset]
+cpt link editors [list|detect|known|set|unset|default]
                                          manage editors
 cpt link oj [list|show|add|remove|test]  manage OJs (builtin + custom)
 cpt link config [show|get|set|unset|reset]
@@ -55,9 +55,15 @@ cpt link template [list|add|remove|show] manage templates
 --all                  delete every file with this id
 ```
 
-## Configuration
+## Supported OJs
 
-Keys:
+Builtin: codeforces, atcoder, codechef, cses, kattis, leetcode, lqdoj,
+marisaoj, nloj, ojuz, spoj, vnoj, yosupo, baekjoon, dmoj, hackerrank,
+hackerearth, uva, timus, aizu, poj, eolymp, lightoj, toph.
+
+Run `cpt link oj list` to see all.
+
+## Config keys
 
 - `default_dir` — base directory for known OJs
 - `fallback_dir` — directory for unknown URLs
@@ -70,7 +76,7 @@ Keys:
 - `auto_oj_subdir` — auto-create a subdirectory per OJ (`true` / `false`)
 - `custom_ojs` — user-defined OJ regexes (managed via `cpt link oj`)
 
-### Directory resolution
+## Directory resolution
 
 For a recognized OJ:
 
@@ -128,9 +134,19 @@ cpt link oj remove <name>            remove a custom OJ
 cpt link oj test <url> [--oj NAME]   test parsing without saving
 ```
 
-Builtin OJs: codeforces, atcoder, codechef, cses, kattis, leetcode, lqdoj,
-marisaoj, nloj, ojuz, spoj, vnoj, yosupo, baekjoon, dmoj, hackerrank,
-hackerearth, uva, timus, aizu, poj, eolymp, lightoj, toph.
+## Editors
+
+Editor registry is shared with other plugins. Config lives in the host
+config file (`cpt self paths` shows where).
+
+```
+cpt link editors list                list detected + configured editors
+cpt link editors detect              show what was found on this system
+cpt link editors known               list known editor names
+cpt link editors set myedit /path    add or override an editor
+cpt link editors unset myedit        remove
+cpt link editors default vscode      set default editor
+```
 
 ## Example
 

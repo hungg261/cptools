@@ -1,8 +1,8 @@
 # stress
 
-Auto stress-test competitive programming solutions. Generates random inputs,
-runs solution against a brute force / checker / interactor, and stops on the
-first mismatch.
+Auto stress-test competitive programming solutions. Generates random
+inputs, runs the solution against a brute force / checker / interactor,
+and stops on the first mismatch.
 
 Aliases: none (use `cpt stress ...`).
 
@@ -28,8 +28,8 @@ cpt stress install-testlib [--force]
 
 ### Standard
 
-Solution + Generator + Brute force. Compares solution output against brute
-output.
+Solution + Generator + Brute force. Compares solution output against
+brute output.
 
 ```
 cpt stress run sol.cpp --gen gen.cpp --brute brute.cpp
@@ -38,9 +38,9 @@ cpt stress run sol.cpp --gen gen.cpp --brute brute.cpp --match token
 
 Match modes:
 
-- `token` (default) - split by whitespace, compare token lists
-- `exact` - exact string match after stripping trailing whitespace
-- `whitespace` - collapse whitespace, strip each line
+- `token` (default) — split by whitespace, compare token lists
+- `exact` — exact string match after stripping trailing whitespace
+- `whitespace` — collapse whitespace, strip each line
 
 ### Checker
 
@@ -51,8 +51,8 @@ convention:
 ./checker <input_file> <participant_output> <jury_output>
 ```
 
-Return codes: 0 = AC, 1 = WA, 2 = Partial (treated as WA), 3 = PE (treated
-as WA), anything else = RTE.
+Return codes: 0 = AC, 1 = WA, 2 = Partial (treated as WA), 3 = PE
+(treated as WA), anything else = RTE.
 
 ```
 cpt stress run sol.cpp --gen gen.cpp --brute brute.cpp --checker checker.cpp
@@ -68,10 +68,6 @@ Interactor convention:
 ```
 ./interactor <input_file> <output_file> <answer_file> [extra_args]
 ```
-
-- `input_file` - generated input (test input for the interaction)
-- `output_file` - copy of solver stdout (for debugging)
-- `answer_file` - copy of interactor stdout (for debugging)
 
 Return code: 0 = AC, 1 = WA, 2 = Partial, 3 = PE, else RTE.
 
@@ -104,10 +100,6 @@ Generator:
 ./gen <test_id> <seed> [extra_args]
 ```
 
-- `test_id` - 1-based iteration number
-- `seed` - deterministic seed (from `--seed N` + iteration, or random)
-- `extra_args` - whatever passed via `--gen-args`
-
 Interactor:
 
 ```
@@ -119,8 +111,7 @@ forwards bytes between them and captures transcripts to files.
 
 ## Config
 
-Global config: `%APPDATA%\cptools\plugins\stress\config.json`
-(Linux/macOS: `~/.config/cptools/plugins/stress/config.json`).
+Global config: `<config_root>/plugins/stress/config.json`.
 
 ```json
 {
@@ -141,18 +132,18 @@ Global config: `%APPDATA%\cptools\plugins\stress\config.json`
 
 Keys:
 
-- `compiler` - compiler executable (default `g++`)
-- `compiler_flags` - list of flags (default `-O2 -std=c++17`)
-- `compile_timeout` - seconds (default 60)
-- `time_limit` - per-run time limit in seconds (default 1.0)
-- `warn_factor` - WARN threshold multiplier (default 1.0)
-- `slow_factor` - SLOW threshold multiplier (default 2.0)
-- `fail_factor` - TLE threshold multiplier (default 3.0)
-- `gen_timeout` - generator timeout in seconds (default 5.0)
-- `match_mode` - default match mode
-- `stop_on_fail` - stop on first fail (default true)
-- `max_fails` - max fails to collect (default 50)
-- `no_compile` - skip compilation, use existing binaries (default false)
+- `compiler` — compiler executable (default `g++`)
+- `compiler_flags` — list of flags (default `-O2 -std=c++17`)
+- `compile_timeout` — seconds (default 60)
+- `time_limit` — per-run time limit in seconds (default 1.0)
+- `warn_factor` — WARN threshold multiplier (default 1.0)
+- `slow_factor` — SLOW threshold multiplier (default 2.0)
+- `fail_factor` — TLE threshold multiplier (default 3.0)
+- `gen_timeout` — generator timeout in seconds (default 5.0)
+- `match_mode` — default match mode
+- `stop_on_fail` — stop on first fail (default true)
+- `max_fails` — max fails to collect (default 50)
+- `no_compile` — skip compilation, use existing binaries (default false)
 
 CLI:
 
@@ -177,9 +168,6 @@ Each iteration is classified by elapsed time against the time limit `TL`:
 
 Default factors give: OK < 1s, WARN 1-2s, SLOW 2-3s, TLE ≥ 3s.
 
-The multipliers are adjustable in Settings. On slower machines, users may
-want higher factors (e.g. `warn=2, slow=3, fail=5`).
-
 ## GUI
 
 Launch with `cpt stress gui [source]`.
@@ -195,7 +183,7 @@ Features:
 - Download testlib.h (Tools menu)
 - Skip compile option (reuse existing binaries)
 
-Default hotkeys:
+### Default hotkeys
 
 | Action | Binding |
 |---|---|
@@ -205,28 +193,19 @@ Default hotkeys:
 | Settings | Ctrl+, |
 | Quit | Ctrl+Q |
 
-All bindings customizable in Settings.
+### Per-file I/O
 
-### Path field menu
+Each of Solution and Brute has its own I/O mode:
 
-Each path field has a `▾` button that opens:
+- **stdin/stdout** (default)
+- **file** — input read from a file, output written to a file
 
-- Preview - jump to Preview tab with this file
-- Open with - submenu of detected editors
-- Reveal in folder
-- Copy path
-- Clear
+The `[I/O]` button next to each path opens a dialog. Each target runs in
+its own work directory, so sol and brute never overwrite each other's
+output files even with the same name.
 
-### I/O mode
-
-The tab "I/O" inside the GUI supports two modes for each iteration:
-
-- **stdin/stdout** (default) - input passed via stdin pipe
-- **file** - input written to a file, solution's `freopen()` reads it
-
-Use file mode when your solution uses `freopen("problem.inp", "r", stdin)`.
-Files are created in a per-solution work directory under the plugin cache,
-not next to the source file.
+Changing the input file name auto-fills the output name (`.inp` → `.out`,
+`.INP` → `.OUT`, unknown ext → `.out`).
 
 ## testlib.h
 
@@ -239,12 +218,9 @@ cpt stress install-testlib --force
 
 Or from GUI: **Tools → Download testlib.h**.
 
-Saved to `%LOCALAPPDATA%\cptools\data\stress\testlib\testlib.h`
-(Linux/macOS: `~/.local/share/cptools/data/stress/testlib/testlib.h`).
-
-Once present, the stress plugin auto-adds `-I<testlib_dir>` to compiler
-flags, so any source with `#include "testlib.h"` compiles without extra
-config.
+Saved to `<data_root>/data/stress/testlib/testlib.h`. Once present, the
+plugin auto-adds `-I<testlib_dir>` to compiler flags, so any source with
+`#include "testlib.h"` compiles without extra config.
 
 Typical generator using testlib.h:
 
@@ -262,23 +238,23 @@ int main(int argc, char** argv) {
 }
 ```
 
-`registerGen(argc, argv, 1)` reads the seed from `argv[1]`, which the stress
-plugin passes automatically.
+`registerGen(argc, argv, 1)` reads the seed from `argv[1]`, which the
+stress plugin passes automatically.
 
 ## Fail storage
 
 Fails are saved to:
 
 ```
-%LOCALAPPDATA%\cptools\data\stress\solutions\<hash>\fails\
-├── fail_001_seed12345\
+<data_root>/data/stress/solutions/<hash>/fails/
+├── fail_001_seed12345/
 │   ├── input.txt
 │   ├── expected.txt
 │   ├── got.txt
 │   ├── stderr.txt         (if any)
 │   ├── interaction_log.txt (interactive mode only)
 │   └── meta.json          (index, seed, status)
-├── fail_002_seed67890\
+├── fail_002_seed67890/
 └── ...
 ```
 
@@ -287,27 +263,24 @@ its own storage, so multiple solutions don't collide.
 
 From the GUI, each fail can be:
 
-- **Viewed** - full dialog with Input / Expected / Got side by side
-- **Added to runner** - insert as a new test into the runner's test storage
+- **Viewed** — full dialog with Input / Expected / Got side by side
+- **Added to runner** — insert as a new test into the runner's test storage
 
 "Add all to runner" inserts every fail at once. Existing tests are not
-overwritten - new tests are appended.
+overwritten — new tests are appended.
 
 ## Compilation
 
 Compilation happens before the loop starts. Each target (solution,
 generator, brute, checker, interactor) is compiled separately.
 
-- Compile progress is logged line by line: `compiling sol: sol.cpp`,
-  `sol OK`, `compiling gen: gen.cpp`, etc.
+- Compile progress is logged line by line.
 - If any compile fails, the loop never starts. A **Compile error** dialog
   shows the full stderr.
-- **Stop** during compile kills the compiler process immediately.
-- **Skip compile** checkbox bypasses compilation and reuses existing
-  binaries from the cache (useful when iterating on the same solution
-  without changing code).
+- **Stop** during compile kills the compiler process.
+- **Skip compile** checkbox reuses existing binaries from the cache.
 
-Binaries are stored in `%LOCALAPPDATA%\cptools\cache\stress\run\<stem>_<hash>\bin\`.
+Binaries are stored in `<data_root>/cache/stress/run/<stem>_<hash>/bin/`.
 
 ## Example workflow
 
@@ -337,5 +310,5 @@ cpt run gui sol.cpp
 
 ## See also
 
-- [runner](runner.md) - test solutions with manual input/output
-- [link-manager](link-manager.md) - fetch problem links, create source files
+- [runner](runner.md) — test solutions with manual input/output
+- [link-manager](link-manager.md) — fetch problem links, create source files
