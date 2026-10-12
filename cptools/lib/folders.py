@@ -135,3 +135,41 @@ def set_default(name: str) -> bool:
     data["default"] = name
     save(data)
     return True
+
+
+def find_names(query: str) -> list[str]:
+    """Return candidate names matching query.
+
+    Order of preference: exact, prefix, substring, fuzzy.
+    Returns [] if nothing matches.
+    """
+    if not query:
+        return []
+    names = list_names()
+    if query in names:
+        return [query]
+    prefix = [n for n in names if n.startswith(query)]
+    if prefix:
+        return prefix
+    substr = [n for n in names if query in n]
+    if substr:
+        return substr
+    import difflib
+    return difflib.get_close_matches(query, names, n=5, cutoff=0.4)
+
+
+def path_of(query: str):
+    """Resolve a possibly fuzzy name.
+
+    Returns (name, path) on unique match, (None, list_of_candidates)
+    if ambiguous, (None, []) if nothing matches.
+    """
+    if not query:
+        return (None, [])
+    candidates = find_names(query)
+    if not candidates:
+        return (None, [])
+    if len(candidates) == 1:
+        name = candidates[0]
+        return (name, get_path(name))
+    return (None, candidates)

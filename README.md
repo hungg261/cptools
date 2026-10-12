@@ -51,10 +51,15 @@ cpt --version                        show version
 | Plugin | Aliases | Purpose |
 |---|---|---|
 | [link-manager](docs/link-manager.md) | `link`, `gen` | Manage problem URLs and source files |
+| [folders](docs/folders.md) | `dir` | Manage named folders for quick access |
 | [tree](docs/tree.md) | | Show directory tree with filters |
 | [runner](docs/runner.md) | `run` | Compile and test solutions with a GUI |
 | [stress](docs/stress.md) | | Auto stress-test with random generators |
 | [snippet](docs/snippet.md) | `snip` | Manage code snippets, copy to clipboard |
+
+`@name` is a reference to a folder registered with the `folders` plugin.
+Use it in link-manager paths: `cpt link new <url> -d @cp/cf`. See
+[docs/folders.md](docs/folders.md).
 
 ## Installing plugins
 

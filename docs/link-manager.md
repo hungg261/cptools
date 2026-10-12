@@ -8,7 +8,7 @@ Aliases: `link`, `gen`.
 
 ```
 cpt link <url>                           shortcut for: new <url>
-cpt link parse <url>                     show info for a URL
+cpt link parse <url> [-d DIR]            show info for a URL
 cpt link new <url> [opts]                create a source file
 cpt link list                            list saved problems
 cpt link dir <url>                       show target directory
@@ -26,6 +26,11 @@ cpt link template [list|add|remove|show] manage templates
 ```
 
 ## Options
+
+### `parse`
+```
+-d, --dir PATH preview a different target directory
+```
 
 ### `new`
 
@@ -160,3 +165,20 @@ cpt link new https://codeforces.com/contest/1923/problem/A
 cpt link new https://atcoder.jp/contests/abc300/tasks/abc300_a
 # -> D:/CP/atcoder/abc300_a.cpp
 ```
+
+## `@name` references
+
+Any path in `default_dir`, `fallback_dir`, `oj_dirs.<oj>`, and `-d` flag
+supports `@name` references. They resolve against the `folders` plugin's
+registry:
+
+```
+cpt link config set default_dir "@cp"
+cpt link config set oj_dirs.codeforces "@cf"
+cpt link new <url> -d @cp/cf
+```
+
+`@name` becomes the folder's path at runtime. If the name is not
+registered, the command fails with `cannot resolve dir: @name`.
+
+See [folders](folders.md) for how to register folders.

@@ -170,3 +170,63 @@ class TestSetDefault:
 
     def test_missing(self, cfg_file):
         assert folders.set_default("nope") is False
+
+
+class TestFindNames:
+    def test_exact(self, cfg_file):
+        folders.save({"folders": {"cp": "/CP"}, "default": ""})
+        assert folders.find_names("cp") == ["cp"]
+
+    def test_prefix(self, cfg_file):
+        folders.save({
+            "folders": {"codeforces": "/cf", "coder": "/c"},
+            "default": "",
+        })
+        result = folders.find_names("cod")
+        assert set(result) == {"codeforces", "coder"}
+
+    def test_substring(self, cfg_file):
+        folders.save({"folders": {"my-codeforces": "/cf"}, "default": ""})
+        assert folders.find_names("code") == ["my-codeforces"]
+
+    def test_typo_fuzzy(self, cfg_file):
+        folders.save({"folders": {"codeforces": "/cf"}, "default": ""})
+        result = folders.find_names("codeforcse")
+        assert "codeforces" in result
+
+    def test_no_match(self, cfg_file):
+        folders.save({"folders": {"cp": "/CP"}, "default": ""})
+        assert folders.find_names("zzzzzzz") == []
+
+    def test_empty_query(self, cfg_file):
+        folders.save({"folders": {"cp": "/CP"}, "default": ""})
+        assert folders.find_names("") == []
+
+
+class TestPathOf:
+    def test_unique(self, cfg_file):
+        folders.save({"folders": {"cp": "/CP"}, "default": ""})
+        name, path = folders.path_of("cp")
+        assert name == "cp"
+        assert path == Path("/CP")
+
+    def test_ambiguous(self, cfg_file):
+        folders.save({
+            "folders": {"codeforces": "/a", "coder": "/b"},
+            "default": "",
+        })
+        name, result = folders.path_of("cod")
+        assert name is None
+        assert isinstance(result, list)
+        assert len(result) == 2
+
+    def test_missing(self, cfg_file):
+        folders.save({"folders": {"cp": "/CP"}, "default": ""})
+        name, result = folders.path_of("zzzzzzz")
+        assert name is None
+        assert result == []
+
+    def test_fuzzy_typo(self, cfg_file):
+        folders.save({"folders": {"codeforces": "/CF"}, "default": ""})
+        name, path = folders.path_of("codeforcse")
+        assert name == "codeforces"

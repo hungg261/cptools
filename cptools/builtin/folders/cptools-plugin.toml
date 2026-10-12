@@ -9,6 +9,7 @@ protocol = 1
 [commands]
 list     = "List all registered folders"
 add      = "Register a folder"
+pick     = "Pick a folder via dialog and register it"
 remove   = "Unregister a folder"
 rename   = "Rename a folder"
 show     = "Print path of a folder"

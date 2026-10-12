@@ -22,6 +22,52 @@ def _confirm(msg):
     return ans in ("y", "yes")
 
 
+def _resolve_or_report(query, cmd_name):
+    """Fuzzy resolve. Returns name or None. Prints messages on failure."""
+    name, result = folders.path_of(query)
+    if name is not None:
+        return name
+    if isinstance(result, list) and result:
+        print(f"'{query}' is ambiguous. candidates:", file=sys.stderr)
+        for c in result:
+            print(f"  {c}", file=sys.stderr)
+        return None
+    print(f"not found: {query}", file=sys.stderr)
+    return None
+
+
+def _interactive_select(multi=False):
+    """Questionary-based picker. Returns list of names (possibly empty)."""
+    names = folders.list_names()
+    if not names:
+        return []
+    try:
+        import questionary
+    except ImportError:
+        return []
+
+    data = folders.load()
+    default = data.get("default", "")
+    choices = []
+    for n in names:
+        path = folders.get_path(n)
+        label = f"{n}  ({path})"
+        if n == default:
+            label = "★ " + label
+        choices.append(questionary.Choice(title=label, value=n))
+
+    if multi:
+        result = questionary.checkbox("Select folder(s):", choices=choices).ask()
+        if result is None:
+            return []
+        return list(result)
+    else:
+        result = questionary.select("Select folder:", choices=choices).ask()
+        if result is None:
+            return []
+        return [result]
+
+
 def cmd_list(argv):
     if argv and argv[0] in ("-h", "--help"):
         print("usage: list")
@@ -56,18 +102,39 @@ def cmd_list(argv):
 def cmd_add(argv):
     if not argv or argv[0] in ("-h", "--help"):
         print("usage: add <name> <path>")
+        print("       add <name> --pick")
         return 0 if argv else 2
-    if len(argv) < 2:
-        print("usage: add <name> <path>", file=sys.stderr)
+
+    parser = argparse.ArgumentParser(add_help=False, prog="cpt folders add")
+    parser.add_argument("name")
+    parser.add_argument("path", nargs="?")
+    parser.add_argument("--pick", action="store_true")
+    try:
+        ns = parser.parse_args(argv)
+    except SystemExit:
         return 2
-    name = argv[0]
-    raw = " ".join(argv[1:])
+
+    name = ns.name
     if not name or name.startswith("@"):
         print("invalid name", file=sys.stderr)
         return 2
     if name in folders.list_names():
         print(f"folder '{name}' already exists", file=sys.stderr)
         return 1
+
+    if ns.pick:
+        picked = _pick_directory()
+        if not picked:
+            print("cancelled")
+            return 0
+        raw = picked
+    elif ns.path:
+        raw = ns.path
+    else:
+        print("usage: add <name> <path>", file=sys.stderr)
+        print("       add <name> --pick", file=sys.stderr)
+        return 2
+
     folders.set_folder(name, raw)
     if AS_JSON:
         emit_json({"ok": True, "name": name, "path": raw})
@@ -76,13 +143,79 @@ def cmd_add(argv):
     return 0
 
 
+def _pick_directory():
+    if not sys.stdin.isatty():
+        print("no interactive terminal; use <path> instead", file=sys.stderr)
+        return None
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except ImportError:
+        print("tkinter not available", file=sys.stderr)
+        return None
+    try:
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            root.attributes("-topmost", True)
+        except Exception:
+            pass
+        try:
+            picked = filedialog.askdirectory()
+        finally:
+            root.destroy()
+        return picked or None
+    except Exception as e:
+        print(f"cannot open dialog: {e}", file=sys.stderr)
+        return None
+
+
+def cmd_pick(argv):
+    if argv and argv[0] in ("-h", "--help"):
+        print("usage: pick")
+        return 0
+
+    picked = _pick_directory()
+    if not picked:
+        print("cancelled")
+        return 0
+
+    default_name = Path(picked).name or "folder"
+    try:
+        import questionary
+        name = questionary.text(
+            f"Name for '{picked}':", default=default_name,
+        ).ask()
+    except Exception:
+        try:
+            name = input(f"Name for '{picked}' [{default_name}]: ").strip()
+            if not name:
+                name = default_name
+        except EOFError:
+            name = default_name
+
+    if not name:
+        print("aborted")
+        return 0
+    name = name.strip()
+    if name.startswith("@") or not name:
+        print("invalid name", file=sys.stderr)
+        return 2
+    if name in folders.list_names():
+        print(f"folder '{name}' already exists", file=sys.stderr)
+        return 1
+
+    folders.set_folder(name, picked)
+    print(f"added: {name} -> {picked}")
+    return 0
+
+
 def cmd_remove(argv):
     if not argv or argv[0] in ("-h", "--help"):
         print("usage: remove <name>")
         return 0 if argv else 2
-    name = argv[0]
-    if name not in folders.list_names():
-        print(f"not found: {name}", file=sys.stderr)
+    name = _resolve_or_report(argv[0], "remove")
+    if name is None:
         return 1
     if not _confirm(f"Remove folder '{name}' from list? (files are not touched)"):
         print("aborted")
@@ -96,10 +229,10 @@ def cmd_rename(argv):
     if len(argv) < 2 or argv[0] in ("-h", "--help"):
         print("usage: rename <old> <new>")
         return 0 if (argv and argv[0] in ("-h", "--help")) else 2
-    old, new = argv[0], argv[1]
-    if old not in folders.list_names():
-        print(f"not found: {old}", file=sys.stderr)
+    old = _resolve_or_report(argv[0], "rename")
+    if old is None:
         return 1
+    new = argv[1]
     if new in folders.list_names():
         print(f"'{new}' already exists", file=sys.stderr)
         return 1
@@ -112,11 +245,8 @@ def cmd_show(argv):
     if not argv or argv[0] in ("-h", "--help"):
         print("usage: show <name>")
         return 0 if argv else 2
-    name = argv[0]
-    data = folders.load()
-    raw = data["folders"].get(name)
-    if raw is None:
-        print(f"not found: {name}", file=sys.stderr)
+    name = _resolve_or_report(argv[0], "show")
+    if name is None:
         return 1
     resolved = folders.resolve_ref("@" + name)
     if AS_JSON:
@@ -127,15 +257,27 @@ def cmd_show(argv):
 
 
 def cmd_open(argv):
-    if not argv or argv[0] in ("-h", "--help"):
-        print("usage: open <name> [<name2> ...]")
-        return 0 if argv else 2
-    names = argv
-    missing = [n for n in names if n not in folders.list_names()]
-    if missing:
-        for n in missing:
-            print(f"not found: {n}", file=sys.stderr)
-        return 1
+    if argv and argv[0] in ("-h", "--help"):
+        print("usage: open [<name> ...]")
+        return 0
+
+    if not argv:
+        if not sys.stdin.isatty():
+            print("usage: open <name> [<name2> ...]", file=sys.stderr)
+            return 2
+        chosen = _interactive_select(multi=True)
+        if not chosen:
+            print("nothing selected")
+            return 0
+        names = chosen
+    else:
+        names = []
+        for q in argv:
+            n = _resolve_or_report(q, "open")
+            if n is None:
+                return 1
+            names.append(n)
+
     opened = 0
     for name in names:
         p = folders.resolve_ref("@" + name)
@@ -190,9 +332,8 @@ def cmd_default(argv):
         else:
             print(cur or "(none)")
         return 0
-    name = argv[0]
-    if name not in folders.list_names():
-        print(f"not found: {name}", file=sys.stderr)
+    name = _resolve_or_report(argv[0], "default")
+    if name is None:
         return 1
     folders.set_default(name)
     print(f"default = {name}")
@@ -241,10 +382,13 @@ def print_help():
 usage:
   cpt folders list                          list all folders
   cpt folders add <name> <path>             register a folder
-  cpt folders remove <name>                 unregister
-  cpt folders rename <old> <new>            rename
-  cpt folders show <name>                   print path
-  cpt folders open <name> [<name2> ...]     open one or more
+  cpt folders add <name> --pick             pick path via dialog
+  cpt folders pick                          dialog + name prompt
+  cpt folders remove <name>                 unregister (fuzzy)
+  cpt folders rename <old> <new>            rename (fuzzy old)
+  cpt folders show <name>                   print path (fuzzy)
+  cpt folders open [<name> ...]             open one or more
+                                            (no arg = interactive picker)
   cpt folders open-all                      open all at once
   cpt folders default [<name>]              get or set default
   cpt folders resolve <@name>[/sub]         resolve a reference
@@ -253,6 +397,8 @@ usage:
 reference syntax (for other plugins):
   @name          path of folder "name"
   @name/sub      path of folder joined with "sub"
+
+names are fuzzy-matched: typos and prefixes are ok when unambiguous.
 
 storage:
   <config_root>/plugins/folders/folders.json
@@ -263,6 +409,7 @@ COMMANDS = {
     "list": cmd_list,
     "ls": cmd_list,
     "add": cmd_add,
+    "pick": cmd_pick,
     "remove": cmd_remove,
     "rm": cmd_remove,
     "rename": cmd_rename,

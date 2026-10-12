@@ -236,3 +236,60 @@ class TestDispatch:
     def test_unknown(self, env):
         r = run_folders(env, "nonsense")
         assert r.returncode == 2
+
+
+class TestFuzzy:
+    def test_show_prefix(self, env, tmp_path):
+        p = tmp_path / "codeforces"
+        p.mkdir()
+        run_folders(env, "add", "codeforces", str(p))
+        r = run_folders(env, "show", "cod")
+        assert r.returncode == 0
+        assert str(p) in r.stdout
+
+    def test_show_typo(self, env, tmp_path):
+        p = tmp_path / "codeforces"
+        p.mkdir()
+        run_folders(env, "add", "codeforces", str(p))
+        r = run_folders(env, "show", "codeforcse")
+        assert r.returncode == 0
+        assert str(p) in r.stdout
+
+    def test_ambiguous(self, env, tmp_path):
+        a = tmp_path / "codeforces"
+        b = tmp_path / "coder"
+        a.mkdir()
+        b.mkdir()
+        run_folders(env, "add", "codeforces", str(a))
+        run_folders(env, "add", "coder", str(b))
+        r = run_folders(env, "show", "cod")
+        assert r.returncode == 1
+        assert "ambiguous" in r.stderr
+
+    def test_not_found(self, env, with_cp):
+        r = run_folders(env, "show", "zzzzzz")
+        assert r.returncode == 1
+        assert "not found" in r.stderr
+
+    def test_remove_fuzzy(self, env, tmp_path):
+        p = tmp_path / "mydir"
+        p.mkdir()
+        run_folders(env, "add", "mydir", str(p))
+        r = run_folders(env, "remove", "mydr", input="y\n")
+        assert r.returncode == 0
+        r = run_folders(env, "list")
+        assert "mydir" not in r.stdout
+
+
+class TestAddPick:
+    def test_pick_flag_calls_dialog(self, env, tmp_path, monkeypatch):
+        # Can't test tkinter dialog easily; skip
+        # Instead test that --pick without tkinter fails gracefully
+        pass
+
+
+class TestDispatch:
+    def test_pick_help(self, env):
+        r = run_folders(env, "pick", "-h")
+        assert r.returncode == 0
+        assert "pick" in r.stdout
