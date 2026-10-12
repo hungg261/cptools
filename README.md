@@ -2,13 +2,20 @@
 
 [![test](https://github.com/hungg261/cptools/actions/workflows/test.yml/badge.svg)](https://github.com/hungg261/cptools/actions/workflows/test.yml)
 
-CLI manager for competitive programming tools. Discovers and runs plugins
-as subcommands.
+CLI manager for competitive programming tools. Discovers and runs plugins as
+subcommands.
 
 ## Install
 
 ```
 pip install -e .
+```
+
+Optional extras:
+
+```
+pip install -e ".[gui]"    # drag-and-drop support (tkinterdnd2)
+pip install -e ".[rar]"    # rar archives support (rarfile + unrar)
 ```
 
 ## Quick start
@@ -29,8 +36,12 @@ cpt <plugin> <command> [args...]     run a plugin
 cpt --json <plugin> <command>        JSON output
 cpt plugin list                      list plugins
 cpt plugin info <name>               plugin details
-cpt plugin install <path|archive|git-url>
-cpt plugin uninstall <name>
+cpt plugin install <src>             install a plugin
+cpt plugin uninstall <name>          uninstall a plugin
+cpt self paths                       show data paths
+cpt self version                     version info
+cpt self doctor                      check environment
+cpt self reset [opts]                delete data / cache / config
 cpt --help                           show help
 cpt --version                        show version
 ```
@@ -43,6 +54,7 @@ cpt --version                        show version
 | [tree](docs/tree.md) | | Show directory tree with filters |
 | [runner](docs/runner.md) | `run` | Compile and test solutions with a GUI |
 | [stress](docs/stress.md) | | Auto stress-test with random generators |
+| [snippet](docs/snippet.md) | `snip` | Manage code snippets, copy to clipboard |
 
 ## Installing plugins
 
@@ -75,7 +87,7 @@ Git installs require `git` in PATH. RAR archives require `rarfile` and an
 
 ## Writing a plugin
 
-A plugin is a directory with a manifest and an executable.
+A plugin is a directory with a manifest and an executable. Any language works.
 
 ```
 my-plugin/
@@ -127,27 +139,46 @@ cpt mp hello
 See [PROTOCOL.md](PROTOCOL.md) for the full spec.
 See `cptools/builtin/link-manager/` for a complete example.
 
-## Layout
-
-Runtime paths (created automatically):
-
-- Config: `%APPDATA%\cptools\plugins\<name>\` / `~/.config/cptools/plugins/<name>/`
-- Data: `%LOCALAPPDATA%\cptools\data\<name>\` / `~/.local/share/cptools/data/<name>/`
-- Cache: `%LOCALAPPDATA%\cptools\cache\<name>\` / `~/.cache/cptools/<name>/`
-
-User plugins override builtin plugins with the same name.
-
 ## Development
 
 ```
-pip install -e ".[gui,dev]"
+pip install -e ".[gui]"
+pip install pytest
 python -m pytest
 ```
 
-Run GUI tests on Linux require `xvfb`:
+On Linux, GUI tests need `xvfb`:
 
 ```
+sudo apt install xvfb
 xvfb-run -a python -m pytest
+```
+
+## Layout
+
+Runtime paths (via `platformdirs`):
+
+- Config: `%APPDATA%\cptools\` / `~/.config/cptools/`
+- Data: `%LOCALAPPDATA%\cptools\` / `~/.local/share/cptools/`
+- Cache: `%LOCALAPPDATA%\cptools\cache\` / `~/.cache/cptools/`
+
+Inspect from CLI:
+
+```
+cpt self paths
+```
+
+User plugins live in `<data_root>/plugins/<name>/` and override builtin
+plugins with the same name.
+
+Delete data with:
+
+```
+cpt self reset --data -y          # plugin data + shared history
+cpt self reset --cache -y         # cache only
+cpt self reset --config -y        # config only
+cpt self reset --all -y           # everything
+cpt self reset --plugin NAME -y   # one plugin's data + cache
 ```
 
 ## License
