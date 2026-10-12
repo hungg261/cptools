@@ -1,0 +1,12 @@
+[plugin]
+name = "stress"
+alias = []
+version = "0.1.0"
+description = "Auto stress-test solutions with random generators"
+exec = ["python", "main.py"]
+protocol = 1
+
+[commands]
+run    = "Run stress test"
+gui    = "Open GUI"
+config = "Manage settings"
