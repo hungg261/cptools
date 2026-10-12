@@ -3,6 +3,8 @@ import os
 from pathlib import Path
 from string import Template
 
+from cptools.lib import folders as folders_lib
+
 CONFIG_DIR = Path(os.environ["CPTOOLS_PLUGIN_CONFIG_DIR"])
 DATA_DIR = Path(os.environ["CPTOOLS_PLUGIN_DATA_DIR"])
 
@@ -65,7 +67,19 @@ def save_config(cfg):
 def expand(s):
     if not s:
         return None
-    return Path(os.path.expandvars(os.path.expanduser(str(s)))).resolve()
+    s = str(s)
+    if s.startswith("@"):
+        try:
+            p = folders_lib.resolve_ref(s)
+        except Exception:
+            p = None
+        if p is None:
+            return None
+        try:
+            return p.resolve()
+        except OSError:
+            return p
+    return Path(os.path.expandvars(os.path.expanduser(s))).resolve()
 
 
 def resolve_dir(cfg, oj_name):

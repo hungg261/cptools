@@ -688,3 +688,72 @@ class TestCustomOjCommands:
         assert r.returncode == 0
         r = run_plugin("oj", "show", "myoj")
         assert "old" in r.stdout
+
+
+class TestAtRef:
+    def test_parse_with_dir_flag(self, run_plugin, plugin_dirs, tmp_path):
+        target = tmp_path / "scratch"
+        target.mkdir()
+        r = run_plugin("parse", "not-a-url", "-d", str(target))
+        assert r.returncode == 1
+        assert "unrecognized url" in r.stdout
+        assert str(target) in r.stdout
+
+    def test_new_with_dir_flag(self, run_plugin, plugin_dirs, tmp_path):
+        target = tmp_path / "mydir"
+        r = run_plugin(
+            "new", CF_URL, "-d", str(target), "-e", ".cpp", "--no-open",
+        )
+        assert r.returncode == 0
+        assert (target / "1923A.cpp").is_file()
+
+    def test_new_with_at_ref(self, run_plugin, plugin_dirs, tmp_path, monkeypatch):
+        # Set up folders plugin config pointing to a tmp dir
+        cfg_root = plugin_dirs["host_config"] / "plugins" / "folders"
+        cfg_root.mkdir(parents=True, exist_ok=True)
+        target = tmp_path / "atfolder"
+        target.mkdir()
+        (cfg_root / "folders.json").write_text(
+            json.dumps({
+                "folders": {"scratch": str(target)},
+                "default": "scratch",
+            }),
+            encoding="utf-8",
+        )
+
+        r = run_plugin(
+            "new", CF_URL, "-d", "@scratch", "-e", ".cpp", "--no-open",
+        )
+        assert r.returncode == 0
+        assert (target / "1923A.cpp").is_file()
+
+    def test_at_ref_sub(self, run_plugin, plugin_dirs, tmp_path):
+        cfg_root = plugin_dirs["host_config"] / "plugins" / "folders"
+        cfg_root.mkdir(parents=True, exist_ok=True)
+        base = tmp_path / "base"
+        base.mkdir()
+        (cfg_root / "folders.json").write_text(
+            json.dumps({
+                "folders": {"cp": str(base)},
+                "default": "cp",
+            }),
+            encoding="utf-8",
+        )
+
+        r = run_plugin(
+            "new", CF_URL, "-d", "@cp/cf", "-e", ".cpp", "--no-open",
+        )
+        assert r.returncode == 0
+        assert (base / "cf" / "1923A.cpp").is_file()
+
+    def test_at_ref_missing(self, run_plugin, plugin_dirs, tmp_path):
+        cfg_root = plugin_dirs["host_config"] / "plugins" / "folders"
+        cfg_root.mkdir(parents=True, exist_ok=True)
+        (cfg_root / "folders.json").write_text(
+            json.dumps({"folders": {}, "default": ""}),
+            encoding="utf-8",
+        )
+
+        r = run_plugin("parse", CF_URL, "-d", "@nope")
+        assert r.returncode == 1
+        assert "cannot resolve" in r.stderr
