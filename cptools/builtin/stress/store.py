@@ -171,3 +171,9 @@ def save_fail(source_path, index, seed, status, input_text,
         encoding="utf-8",
     )
     return d
+
+
+def testlib_dir():
+    p = DATA_DIR / "testlib"
+    p.mkdir(parents=True, exist_ok=True)
+    return p

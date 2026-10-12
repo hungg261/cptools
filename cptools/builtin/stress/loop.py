@@ -9,7 +9,7 @@ from pathlib import Path
 from cptools.lib.compile import compile_source, default_output
 
 from store import (
-    bin_dir, clear_fails, save_fail, work_root,
+    bin_dir, clear_fails, save_fail, work_root, testlib_dir,
 )
 from interactive import run_interactive
 
@@ -144,9 +144,14 @@ class StressRunner:
 
     def _compile(self):
         compiler = self.gcfg.get("compiler") or "g++"
-        flags = self.gcfg.get("compiler_flags") or []
+        flags = list(self.gcfg.get("compiler_flags") or [])
         timeout = int(self.gcfg.get("compile_timeout", 60))
         bd = bin_dir(self.source)
+
+        # auto-include testlib.h if downloaded
+        tl_dir = testlib_dir()
+        if (tl_dir / "testlib.h").is_file():
+            flags.append(f"-I{tl_dir}")
 
         mode = self.scfg.get("mode", "standard")
 
