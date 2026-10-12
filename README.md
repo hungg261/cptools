@@ -42,6 +42,7 @@ cpt --version                        show version
 | [link-manager](docs/link-manager.md) | `link`, `gen` | Manage problem URLs and source files |
 | [tree](docs/tree.md) | | Show directory tree with filters |
 | [runner](docs/runner.md) | `run` | Compile and test solutions with a GUI |
+| [stress](docs/stress.md) | | Auto stress-test with random generators |
 
 ## Installing plugins
 
