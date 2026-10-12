@@ -121,9 +121,9 @@ def _rmfile(path: Path):
 def cmd_paths(args):
     cfg = paths.config_root()
     data = paths.data_root()
-    console.print(f"[bold]config[/bold]  {cfg}")
-    console.print(f"[bold]data[/bold]    {data}")
-    console.print(f"[bold]cache[/bold]   {data / 'cache'}")
+    print(f"config  {cfg}")
+    print(f"data    {data}")
+    print(f"cache   {data / 'cache'}")
     return 0
 
 
@@ -132,9 +132,9 @@ def cmd_paths(args):
 def cmd_version(args):
     py = f"{platform.python_version()} ({sys.executable})"
     plat = platform.platform()
-    console.print(f"[bold]cptools[/bold]  {__version__}")
-    console.print(f"[bold]python[/bold]   {py}")
-    console.print(f"[bold]platform[/bold] {plat}")
+    print(f"cptools  {__version__}")
+    print(f"python   {py}")
+    print(f"platform {plat}")
     return 0
 
 
