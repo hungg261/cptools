@@ -10,6 +10,7 @@ from cptools.lib.compile import compile_source, default_output
 
 from store import (
     bin_dir, clear_fails, save_fail, work_root, testlib_dir,
+    DEFAULT_IO,
 )
 from interactive import run_interactive
 
@@ -101,6 +102,62 @@ def _run_proc(cmd, stdin_bytes, timeout, cancel_event, tracker, cwd):
         }
     finally:
         tracker.discard(proc)
+
+
+def _run_target(binary, input_text, timeout, cancel_event, tracker, work_dir, io_mode):
+    """Run a target with per-target I/O mode (stdin/stdout or file)."""
+    work_dir = Path(work_dir)
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    in_mode = io_mode.get("input", "stdin")
+    out_mode = io_mode.get("output", "stdout")
+
+    if in_mode == "file":
+        in_name = io_mode.get("input_file") or "input.txt"
+        in_file = work_dir / in_name
+        in_file.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            in_file.write_text(input_text, encoding="utf-8")
+        except OSError as e:
+            return {
+                "rc": None, "stdout": "", "stderr": f"write input failed: {e}",
+                "elapsed": 0.0, "timeout": False, "cancelled": False,
+                "error": True,
+            }
+        stdin_bytes = None
+    else:
+        stdin_bytes = input_text.encode("utf-8")
+
+    out_file = None
+    if out_mode == "file":
+        out_name = io_mode.get("output_file") or "output.txt"
+        out_file = work_dir / out_name
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        if out_file.exists():
+            try:
+                out_file.unlink()
+            except OSError:
+                pass
+
+    r = _run_proc(
+        [str(binary)],
+        stdin_bytes=stdin_bytes,
+        timeout=timeout,
+        cancel_event=cancel_event,
+        tracker=tracker,
+        cwd=work_dir,
+    )
+
+    if out_mode == "file" and out_file is not None and r.get("rc") is not None:
+        if out_file.exists():
+            try:
+                r["stdout"] = out_file.read_text(encoding="utf-8", errors="replace")
+            except OSError as e:
+                r["stdout"] = f"<read output failed: {e}>"
+        else:
+            r["stdout"] = ""
+
+    return r
 
 
 def _classify(t, tl, warn_f, slow_f, fail_f):
@@ -251,6 +308,10 @@ class StressRunner:
         match_mode = self.scfg["standard"].get("match_mode", "token")
         interactor_bin = bins.get("interactor")
 
+        io_cfg = self.scfg.get("io") or {}
+        sol_io = io_cfg.get("sol") or dict(DEFAULT_IO)
+        brute_io = io_cfg.get("brute") or dict(DEFAULT_IO)
+
         tl = float(self.gcfg.get("time_limit", 1.0))
         warn_f = float(self.gcfg.get("warn_factor", 1.0))
         slow_f = float(self.gcfg.get("slow_factor", 2.0))
@@ -289,14 +350,22 @@ class StressRunner:
                 iter_n += 1
                 seed = rng.randint(1, 10 ** 9) if randomize else seed_base + (iter_n - 1)
 
+                base_wd = work / f"test_{iter_n}"
+                gen_wd = base_wd / "gen"
+                brute_wd = base_wd / "brute"
+                sol_wd = base_wd / "sol"
+                checker_wd = base_wd / "checker"
+                inter_wd = base_wd / "interactive"
+
                 # ---- gen ----
+                gen_wd.mkdir(parents=True, exist_ok=True)
                 gen_res = _run_proc(
                     [str(gen_bin), str(iter_n), str(seed), *extra_gen_args],
                     stdin_bytes=None,
                     timeout=gen_timeout,
                     cancel_event=self.cancel_event,
                     tracker=self._procs,
-                    cwd=work,
+                    cwd=gen_wd,
                 )
                 if gen_res.get("cancelled"):
                     reason = "cancelled"
@@ -314,9 +383,8 @@ class StressRunner:
                     break
 
                 input_text = gen_res["stdout"]
-                input_bytes = input_text.encode("utf-8")
 
-                # ---- interactive shortcut ----
+                # ---- interactive ----
                 if mode == "interactive":
                     if interactor_bin is None:
                         self.on_error("interactor not configured")
@@ -329,7 +397,7 @@ class StressRunner:
                         timeout=tl * fail_f,
                         cancel_event=self.cancel_event,
                         tracker=self._procs,
-                        work_dir=work,
+                        work_dir=inter_wd,
                     )
                     if i_res.get("cancelled"):
                         reason = "cancelled"
@@ -360,17 +428,16 @@ class StressRunner:
                         last_progress = now
                     continue
 
-
                 # ---- brute ----
                 expected_text = ""
                 if brute_bin:
-                    b_res = _run_proc(
-                        [str(brute_bin)],
-                        stdin_bytes=input_bytes,
+                    b_res = _run_target(
+                        brute_bin, input_text,
                         timeout=tl * fail_f,
                         cancel_event=self.cancel_event,
                         tracker=self._procs,
-                        cwd=work,
+                        work_dir=brute_wd,
+                        io_mode=brute_io,
                     )
                     if b_res.get("cancelled"):
                         reason = "cancelled"
@@ -392,13 +459,13 @@ class StressRunner:
                     expected_text = b_res["stdout"]
 
                 # ---- sol ----
-                sol_res = _run_proc(
-                    [str(sol_bin)],
-                    stdin_bytes=input_bytes,
+                sol_res = _run_target(
+                    sol_bin, input_text,
                     timeout=tl * fail_f,
                     cancel_event=self.cancel_event,
                     tracker=self._procs,
-                    cwd=work,
+                    work_dir=sol_wd,
+                    io_mode=sol_io,
                 )
                 if sol_res.get("cancelled"):
                     reason = "cancelled"
@@ -413,9 +480,10 @@ class StressRunner:
                 elif sol_res.get("error") or sol_res.get("rc") != 0:
                     status = "RTE"
                 elif mode == "checker" and checker_bin:
-                    inp_f = work / "inp.txt"
-                    got_f = work / "got.txt"
-                    exp_f = work / "exp.txt"
+                    checker_wd.mkdir(parents=True, exist_ok=True)
+                    inp_f = checker_wd / "input.txt"
+                    got_f = checker_wd / "got.txt"
+                    exp_f = checker_wd / "exp.txt"
                     inp_f.write_text(input_text, encoding="utf-8")
                     got_f.write_text(sol_res["stdout"], encoding="utf-8")
                     exp_f.write_text(expected_text, encoding="utf-8")
@@ -425,7 +493,7 @@ class StressRunner:
                         timeout=5.0,
                         cancel_event=self.cancel_event,
                         tracker=self._procs,
-                        cwd=work,
+                        cwd=checker_wd,
                     )
                     if c_res.get("cancelled"):
                         reason = "cancelled"

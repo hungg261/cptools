@@ -16,6 +16,7 @@ from cptools.lib.open import open_file, open_folder, reveal_file
 from store import (
     load_config, save_config, load_solution, save_solution,
     work_root, fails_dir, clear_fails, testlib_dir, DEFAULT_CONFIG,
+    DEFAULT_IO, get_target_io, set_target_io, infer_output_file,
 )
 from loop import StressRunner
 
@@ -41,9 +42,6 @@ UI_BOLD = (UI_FONT, 10, "bold")
 UI_SMALL = (UI_FONT, 9)
 
 PAD = 3
-
-BORDER = "#d0d0d0"
-BORDER_FOCUS = "#0078d4"
 FG_MUTED = "#666666"
 
 OK_FG = "#1f7a1f"
@@ -157,7 +155,6 @@ def _parse_hotkey(s):
 
 
 def _sanitize_flags_str(raw):
-    """Return a clean space-separated string."""
     if raw is None:
         return ""
     if isinstance(raw, (list, tuple)):
@@ -317,6 +314,170 @@ class ErrorDialog(tk.Toplevel):
         self.clipboard_append(content)
         if self.app:
             self.app.set_status("copied")
+
+
+# ---------------------------------------------------------------- IODialog
+
+class IODialog(tk.Toplevel):
+    def __init__(self, parent, target_label, io_config, all_ios, on_save):
+        super().__init__(parent)
+        self.target_label = target_label
+        self.all_ios = all_ios
+        self.on_save = on_save
+
+        self.input_mode_var = tk.StringVar(value=io_config.get("input", "stdin"))
+        self.input_file_var = tk.StringVar(value=io_config.get("input_file", "input.txt"))
+        self.output_mode_var = tk.StringVar(value=io_config.get("output", "stdout"))
+        self.output_file_var = tk.StringVar(value=io_config.get("output_file", "output.txt"))
+
+        self._suppress = False
+        self._last_auto_output = self.output_file_var.get()
+
+        self.title(f"I/O: {target_label}")
+        self.transient(parent)
+        self.resizable(False, False)
+
+        outer = ttk.Frame(self, padding=12)
+        outer.pack(fill="both", expand=True)
+        outer.columnconfigure(0, weight=1)
+
+        # Input section
+        ttk.Label(outer, text="Input", font=UI_BOLD).grid(
+            row=0, column=0, sticky="w",
+        )
+        inf = ttk.Frame(outer)
+        inf.grid(row=1, column=0, sticky="ew", pady=(2, 10))
+        ttk.Radiobutton(
+            inf, text="stdin", variable=self.input_mode_var,
+            value="stdin", command=self._update_states,
+        ).pack(side="left")
+        ttk.Radiobutton(
+            inf, text="file", variable=self.input_mode_var,
+            value="file", command=self._update_states,
+        ).pack(side="left", padx=(8, 12))
+        ttk.Label(inf, text="File").pack(side="left")
+        self.input_entry = ttk.Entry(inf, textvariable=self.input_file_var)
+        self.input_entry.pack(side="left", fill="x", expand=True, padx=(4, 0))
+
+        # Output section
+        ttk.Label(outer, text="Output", font=UI_BOLD).grid(
+            row=2, column=0, sticky="w",
+        )
+        outf = ttk.Frame(outer)
+        outf.grid(row=3, column=0, sticky="ew", pady=(2, 12))
+        ttk.Radiobutton(
+            outf, text="stdout", variable=self.output_mode_var,
+            value="stdout", command=self._update_states,
+        ).pack(side="left")
+        ttk.Radiobutton(
+            outf, text="file", variable=self.output_mode_var,
+            value="file", command=self._update_states,
+        ).pack(side="left", padx=(8, 12))
+        ttk.Label(outf, text="File").pack(side="left")
+        self.output_entry = ttk.Entry(outf, textvariable=self.output_file_var)
+        self.output_entry.pack(side="left", fill="x", expand=True, padx=(4, 0))
+
+        # Copy from section
+        cf = ttk.Frame(outer)
+        cf.grid(row=4, column=0, sticky="ew", pady=(0, 12))
+        ttk.Label(cf, text="Copy from:").pack(side="left")
+        other_labels = [lbl for lbl, _ in self.all_ios if lbl != target_label]
+        self.copy_var = tk.StringVar(value=other_labels[0] if other_labels else "")
+        self.copy_combo = ttk.Combobox(
+            cf, textvariable=self.copy_var,
+            values=other_labels, state="readonly" if other_labels else "disabled",
+            width=16,
+        )
+        self.copy_combo.pack(side="left", padx=(4, 4))
+        self.copy_btn = ttk.Button(cf, text="Apply", command=self._apply_copy)
+        self.copy_btn.pack(side="left")
+        if not other_labels:
+            self.copy_btn.configure(state="disabled")
+
+        # Buttons
+        btns = ttk.Frame(outer)
+        btns.grid(row=5, column=0, sticky="ew", pady=(8, 0))
+        ttk.Button(btns, text="Reset default", command=self._reset).pack(side="left")
+        ttk.Button(btns, text="Cancel", command=self.destroy).pack(side="right")
+        ttk.Button(btns, text="OK", command=self._save).pack(side="right", padx=(0, 4))
+
+        self.input_file_var.trace_add("write", self._on_input_file_change)
+        self.output_file_var.trace_add("write", self._on_output_file_change)
+
+        self._update_states()
+        self.after_idle(self._autosize)
+
+    def _autosize(self):
+        try:
+            self.update_idletasks()
+            w = self.winfo_reqwidth()
+            h = self.winfo_reqheight()
+            self.geometry(f"{w}x{h}")
+        except Exception:
+            pass
+
+    def _update_states(self):
+        in_state = "normal" if self.input_mode_var.get() == "file" else "disabled"
+        out_state = "normal" if self.output_mode_var.get() == "file" else "disabled"
+        try:
+            self.input_entry.configure(state=in_state)
+            self.output_entry.configure(state=out_state)
+        except tk.TclError:
+            pass
+
+    def _on_input_file_change(self, *_):
+        if self._suppress:
+            return
+        new_val = self.input_file_var.get()
+        old_out = self.output_file_var.get()
+        if not old_out or old_out == self._last_auto_output:
+            inferred = infer_output_file(new_val)
+            self._suppress = True
+            self.output_file_var.set(inferred)
+            self._last_auto_output = inferred
+            self._suppress = False
+
+    def _on_output_file_change(self, *_):
+        if self._suppress:
+            return
+        self._last_auto_output = None
+
+    def _apply_copy(self):
+        label = self.copy_var.get()
+        for lbl, io in self.all_ios:
+            if lbl == label:
+                self._suppress = True
+                self.input_mode_var.set(io.get("input", "stdin"))
+                self.input_file_var.set(io.get("input_file", "input.txt"))
+                self.output_mode_var.set(io.get("output", "stdout"))
+                self.output_file_var.set(io.get("output_file", "output.txt"))
+                self._last_auto_output = self.output_file_var.get()
+                self._suppress = False
+                self._update_states()
+                break
+
+    def _reset(self):
+        self._suppress = True
+        self.input_mode_var.set("stdin")
+        self.input_file_var.set("input.txt")
+        self.output_mode_var.set("stdout")
+        self.output_file_var.set("output.txt")
+        self._last_auto_output = "output.txt"
+        self._suppress = False
+        self._update_states()
+
+    def _save(self):
+        result = {
+            "input": self.input_mode_var.get(),
+            "input_file": self.input_file_var.get().strip() or "input.txt",
+            "output": self.output_mode_var.get(),
+            "output_file": self.output_file_var.get().strip() or "output.txt",
+        }
+        try:
+            self.on_save(result)
+        except Exception:
+            pass
+        self.destroy()
 
 
 # ---------------------------------------------------------------- SettingsDialog
@@ -680,8 +841,6 @@ class StressApp:
         style.configure("Status.TLabel", font=UI_SMALL, padding=(4, 2),
                         foreground=FG_MUTED)
 
-    # ------------------------------------------------------ menu
-
     def _build_menubar(self):
         menubar = tk.Menu(self.root)
 
@@ -784,8 +943,6 @@ class StressApp:
             parent=self.root,
         )
 
-    # ------------------------------------------------------ ui
-
     def _build_ui(self):
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(2, weight=0)
@@ -801,6 +958,9 @@ class StressApp:
         self.sol_entry.grid(row=0, column=1, sticky="ew", padx=(0, 4))
         ttk.Button(top, text="\u2026", width=2, command=self._browse_solution).grid(row=0, column=2)
         ttk.Button(top, text="\u25be", width=2, command=lambda: self._path_menu(self.sol_var, "solution")).grid(row=0, column=3, padx=(2, 0))
+        self.sol_io_btn = ttk.Button(top, text="I/O", width=4,
+                                     command=lambda: self._open_io_dialog("sol"))
+        self.sol_io_btn.grid(row=0, column=4, padx=(2, 0))
 
         ttk.Label(top, text="Generator", width=10).grid(row=1, column=0, sticky="w", padx=(0, 4), pady=(4, 0))
         self.gen_var = tk.StringVar()
@@ -981,11 +1141,13 @@ class StressApp:
         self.std_brute_entry.grid(row=0, column=1, sticky="ew", padx=(0, 4))
         ttk.Button(f, text="\u2026", width=2, command=lambda: self._browse_into(self.std_brute_var, "brute")).grid(row=0, column=2)
         ttk.Button(f, text="\u25be", width=2, command=lambda: self._path_menu(self.std_brute_var, "brute")).grid(row=0, column=3, padx=(2, 0))
+        ttk.Button(f, text="I/O", width=4,
+                   command=lambda: self._open_io_dialog("brute")).grid(row=0, column=4, padx=(2, 0))
 
         ttk.Label(f, text="Match", width=10).grid(row=1, column=0, sticky="w", pady=(4, 0))
         self.match_var = tk.StringVar(value="token")
         mf = ttk.Frame(f)
-        mf.grid(row=1, column=1, columnspan=3, sticky="w", pady=(4, 0))
+        mf.grid(row=1, column=1, columnspan=4, sticky="w", pady=(4, 0))
         for val in ("token", "exact", "whitespace"):
             ttk.Radiobutton(mf, text=val, value=val, variable=self.match_var).pack(side="left", padx=(0, 8))
 
@@ -1000,6 +1162,8 @@ class StressApp:
         self.ck_brute_entry.grid(row=0, column=1, sticky="ew", padx=(0, 4))
         ttk.Button(f, text="\u2026", width=2, command=lambda: self._browse_into(self.ck_brute_var, "brute")).grid(row=0, column=2)
         ttk.Button(f, text="\u25be", width=2, command=lambda: self._path_menu(self.ck_brute_var, "brute")).grid(row=0, column=3, padx=(2, 0))
+        ttk.Button(f, text="I/O", width=4,
+                   command=lambda: self._open_io_dialog("brute")).grid(row=0, column=4, padx=(2, 0))
 
         ttk.Label(f, text="Checker", width=10).grid(row=1, column=0, sticky="w", pady=(4, 0))
         self.ck_checker_var = tk.StringVar()
@@ -1157,6 +1321,26 @@ class StressApp:
         idx = self.mode_nb.index(self.mode_nb.select())
         self.scfg["mode"] = ["standard", "checker", "interactive"][idx]
         self._save_solution_now()
+
+    # ------------------------------------------------------ io dialog
+
+    def _open_io_dialog(self, target):
+        if not self.scfg:
+            self.set_status("load a solution first")
+            return
+        all_ios = [
+            ("Solution", get_target_io(self.scfg, "sol")),
+            ("Brute", get_target_io(self.scfg, "brute")),
+        ]
+        target_label = "Solution" if target == "sol" else "Brute"
+        current = get_target_io(self.scfg, target)
+
+        def on_save(new_io):
+            set_target_io(self.scfg, target, new_io)
+            self._save_solution_now()
+            self.set_status(f"io updated: {target_label}")
+
+        IODialog(self.root, target_label, current, all_ios, on_save)
 
     # ------------------------------------------------------ browsing
 

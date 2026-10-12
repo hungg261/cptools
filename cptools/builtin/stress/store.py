@@ -25,6 +25,15 @@ DEFAULT_CONFIG = {
     "no_compile": False,
 }
 
+DEFAULT_IO = {
+    "input": "stdin",
+    "output": "stdout",
+    "input_file": "input.txt",
+    "output_file": "output.txt",
+}
+
+IO_TARGETS = ("sol", "brute")
+
 DEFAULT_PER_SOLUTION = {
     "source": "",
     "generator": "",
@@ -32,6 +41,7 @@ DEFAULT_PER_SOLUTION = {
     "standard": {"extra": "", "match_mode": "token"},
     "checker": {"extra": "", "checker": ""},
     "interactive": {"extra": "", "log_interactions": False},
+    "io": {},
     "seed": 0,
     "randomize_per_iter": False,
     "gen_args": "",
@@ -39,7 +49,6 @@ DEFAULT_PER_SOLUTION = {
 
 
 def _sanitize_flags(raw):
-    """Normalize compiler flags to a clean list[str]."""
     if raw is None:
         return []
     if isinstance(raw, str):
@@ -75,7 +84,7 @@ def load_config():
                 cfg[k] = float(v)
             except (TypeError, ValueError):
                 pass
-        elif k == "max_fails":
+        elif k == "max_fails" or k == "compile_timeout":
             try:
                 cfg[k] = int(v)
             except (TypeError, ValueError):
@@ -111,12 +120,64 @@ def _per_file(source_path):
     return DATA_DIR / "solutions" / f"{_key(source_path)}.json"
 
 
+def _ensure_io_shape(data):
+    io = data.get("io")
+    if isinstance(io, dict) and ("input" in io or "output" in io):
+        base = dict(DEFAULT_IO)
+        base.update({k: v for k, v in io.items() if k in DEFAULT_IO})
+        io = {t: dict(base) for t in IO_TARGETS}
+    elif not isinstance(io, dict):
+        io = {}
+    for t in IO_TARGETS:
+        tio = io.get(t)
+        if not isinstance(tio, dict):
+            tio = {}
+        merged = dict(DEFAULT_IO)
+        merged.update({k: v for k, v in tio.items() if k in DEFAULT_IO})
+        io[t] = merged
+    data["io"] = io
+
+
+def get_target_io(data, target):
+    _ensure_io_shape(data)
+    return dict(data["io"][target])
+
+
+def set_target_io(data, target, io_dict):
+    _ensure_io_shape(data)
+    data["io"][target] = {
+        k: io_dict.get(k, DEFAULT_IO[k]) for k in DEFAULT_IO
+    }
+
+
+def infer_output_file(input_name):
+    if not input_name:
+        return ""
+    s = str(input_name).replace("\\", "/")
+    if "/" in s:
+        folder, fname = s.rsplit("/", 1)
+        folder = folder + "/"
+    else:
+        folder, fname = "", s
+    if "." in fname:
+        stem, ext = fname.rsplit(".", 1)
+        if not stem:
+            return folder + fname + ".out"
+        if ext.lower() == "out":
+            return f"{folder}{stem}.txt"
+        if ext.isupper():
+            return f"{folder}{stem}.OUT"
+        return f"{folder}{stem}.out"
+    return f"{folder}{fname}.out"
+
+
 def load_solution(source_path):
     resolved = str(Path(source_path).resolve())
     f = _per_file(source_path)
     if not f.exists():
         data = json.loads(json.dumps(DEFAULT_PER_SOLUTION))
         data["source"] = resolved
+        _ensure_io_shape(data)
         return data
     try:
         data = json.loads(f.read_text(encoding="utf-8"))
@@ -132,6 +193,7 @@ def load_solution(source_path):
     data.setdefault("seed", 0)
     data.setdefault("randomize_per_iter", False)
     data.setdefault("gen_args", "")
+    _ensure_io_shape(data)
     return data
 
 
@@ -186,11 +248,7 @@ def save_fail(source_path, index, seed, status, input_text,
     if log:
         (d / "interaction_log.txt").write_text(log, encoding="utf-8")
 
-    meta = {
-        "index": index,
-        "seed": seed,
-        "status": status,
-    }
+    meta = {"index": index, "seed": seed, "status": status}
     (d / "meta.json").write_text(
         json.dumps(meta, indent=2, ensure_ascii=False),
         encoding="utf-8",
