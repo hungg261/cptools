@@ -46,9 +46,10 @@ def cmd_run(argv):
     parser.add_argument("--gen", "-g", dest="generator", required=True)
     parser.add_argument("--brute", "-b", dest="brute")
     parser.add_argument("--checker", "-c", dest="checker")
+    parser.add_argument("--interactor", dest="interactor")
     parser.add_argument(
         "-m", "--mode",
-        choices=["standard", "checker"],
+        choices=["standard", "checker", "interactive"],
         default=None,
     )
     parser.add_argument("--seed", "-s", type=int)
@@ -74,6 +75,8 @@ def cmd_run(argv):
     if not mode:
         if ns.checker:
             mode = "checker"
+        elif ns.interactor:
+            mode = "interactive"
         else:
             mode = "standard"
 
@@ -83,6 +86,10 @@ def cmd_run(argv):
             return 2
         if not ns.brute:
             print("--brute is required for checker mode", file=sys.stderr)
+            return 2
+    elif mode == "interactive":
+        if not ns.interactor:
+            print("--interactor is required for interactive mode", file=sys.stderr)
             return 2
     else:
         if not ns.brute:
@@ -97,9 +104,11 @@ def cmd_run(argv):
         scfg["standard"]["extra"] = ns.brute
         if ns.match:
             scfg["standard"]["match_mode"] = ns.match
-    else:
+    elif mode == "checker":
         scfg["checker"]["extra"] = ns.brute
         scfg["checker"]["checker"] = ns.checker
+    else:
+        scfg["interactive"]["extra"] = ns.interactor
 
     if ns.seed is not None:
         scfg["seed"] = ns.seed
@@ -292,6 +301,7 @@ def print_help():
 usage:
   cpt stress run <source> --gen GEN.cpp --brute B.cpp [opts]
   cpt stress run <source> --gen GEN.cpp --brute B.cpp --checker C.cpp
+  cpt stress run <source> --gen GEN.cpp --interactor I.cpp
   cpt stress gui [source]                       open GUI
   cpt stress config [show|get|set|reset]
 
@@ -299,7 +309,8 @@ run options:
   -g, --gen FILE         generator source
   -b, --brute FILE       brute force source
   -c, --checker FILE     checker source (implies --mode checker)
-  -m, --mode MODE        standard | checker
+  --interactor FILE      interactor source (implies --mode interactive)
+  -m, --mode MODE        standard | checker | interactive
   -s, --seed N           starting seed (default: from config)
   --randomize-seed       randomize seed per iteration
   --gen-args ARGS        extra args passed to generator after seed

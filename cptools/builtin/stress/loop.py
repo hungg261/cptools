@@ -11,6 +11,7 @@ from cptools.lib.compile import compile_source, default_output
 from store import (
     bin_dir, clear_fails, save_fail, work_root,
 )
+from interactive import run_interactive
 
 
 HIDE_WINDOW = 0
@@ -164,6 +165,10 @@ class StressRunner:
                 targets["brute"] = Path(extra)
             if checker:
                 targets["checker"] = Path(checker)
+        elif mode == "interactive":
+            interactor = self.scfg["interactive"].get("extra")
+            if interactor:
+                targets["interactor"] = Path(interactor)
 
         result = {}
         for key, src in targets.items():
@@ -197,6 +202,7 @@ class StressRunner:
 
         mode = self.scfg.get("mode", "standard")
         match_mode = self.scfg["standard"].get("match_mode", "token")
+        interactor_bin = bins.get("interactor")
 
         tl = float(self.gcfg.get("time_limit", 1.0))
         warn_f = float(self.gcfg.get("warn_factor", 1.0))
@@ -262,6 +268,51 @@ class StressRunner:
 
                 input_text = gen_res["stdout"]
                 input_bytes = input_text.encode("utf-8")
+
+                # ---- interactive shortcut ----
+                if mode == "interactive":
+                    if interactor_bin is None:
+                        self.on_error("interactor not configured")
+                        reason = "config_error"
+                        break
+                    i_res = run_interactive(
+                        [str(sol_bin)],
+                        [str(interactor_bin)],
+                        input_text,
+                        timeout=tl * fail_f,
+                        cancel_event=self.cancel_event,
+                        tracker=self._procs,
+                        work_dir=work,
+                    )
+                    if i_res.get("cancelled"):
+                        reason = "cancelled"
+                        break
+                    st = i_res["status"]
+                    elapsed = i_res["elapsed"]
+                    if st == "OK":
+                        st = _classify(elapsed, tl, warn_f, slow_f, fail_f)
+                    self.on_log(iter_n, seed, st, elapsed)
+                    if st in ("WA", "RTE", "TLE"):
+                        fails += 1
+                        fail_dir = save_fail(
+                            self.source, fails, seed, st,
+                            input_text=input_text,
+                            log=i_res.get("log", ""),
+                            stderr=i_res.get("stderr", ""),
+                        )
+                        self.on_fail(fails, seed, st, elapsed, str(fail_dir))
+                        if stop_on_fail:
+                            reason = "fail"
+                            break
+                        if fails >= max_fails:
+                            reason = "max_fails"
+                            break
+                    now = time.monotonic()
+                    if now - last_progress > 0.1:
+                        self.on_progress(iter_n, fails, now - start)
+                        last_progress = now
+                    continue
+
 
                 # ---- brute ----
                 expected_text = ""
