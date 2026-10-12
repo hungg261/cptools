@@ -37,14 +37,17 @@ def _kill(proc):
 
 
 def _run_proc(cmd, stdin_bytes, timeout, cancel_event, tracker, cwd):
+    kwargs = {}
+    if cwd is not None:
+        kwargs["cwd"] = str(cwd)
     try:
         proc = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE if stdin_bytes is not None else subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            cwd=str(cwd),
             creationflags=HIDE_WINDOW,
+            **kwargs,
         )
     except OSError as e:
         return {
@@ -170,7 +173,11 @@ class StressRunner:
 
     def _compile(self):
         compiler = self.gcfg.get("compiler") or "g++"
-        flags = list(self.gcfg.get("compiler_flags") or [])
+        raw_flags = self.gcfg.get("compiler_flags") or []
+        if isinstance(raw_flags, str):
+            flags = raw_flags.split()
+        else:
+            flags = [str(x) for x in raw_flags]
         timeout = int(self.gcfg.get("compile_timeout", 60))
 
         tl_dir = testlib_dir()
@@ -211,6 +218,7 @@ class StressRunner:
                 if not src or not Path(src).is_file():
                     if key in ("sol", "gen"):
                         self.on_error(f"missing file for '{key}': {src}")
+                        self.on_done("missing_file", 0, 0, 0.0)
                         return
                     bins[key] = None
                     continue
@@ -220,13 +228,18 @@ class StressRunner:
                         f"binary not found for {key}: {out}\n"
                         "disable 'no_compile' to build first"
                     )
+                    self.on_done("missing_binary", 0, 0, 0.0)
                     return
                 bins[key] = out
             self.on_compile("_skip_", "skipped", "")
         else:
             bins, err = self._compile()
             if err:
-                self.on_error(err)
+                if err == "__cancelled__":
+                    self.on_done("cancelled", 0, 0, 0.0)
+                else:
+                    self.on_error(err)
+                    self.on_done("compile_failed", 0, 0, 0.0)
                 return
 
         sol_bin = bins["sol"]

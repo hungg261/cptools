@@ -156,6 +156,24 @@ def _parse_hotkey(s):
     return f"<{tk_binding}>"
 
 
+def _sanitize_flags_str(raw):
+    """Return a clean space-separated string."""
+    if raw is None:
+        return ""
+    if isinstance(raw, (list, tuple)):
+        parts = []
+        for item in raw:
+            s = str(item)
+            for ch in "[]'\",":
+                s = s.replace(ch, " ")
+            parts.append(s)
+        raw = " ".join(parts)
+    s = str(raw)
+    for ch in "[]'\"":
+        s = s.replace(ch, " ")
+    return " ".join(s.split())
+
+
 def _load_full_cfg():
     cfg = load_config()
     hk = dict(DEFAULT_HOTKEYS)
@@ -268,6 +286,39 @@ class CaptureDialog(tk.Toplevel):
         self.destroy()
 
 
+# ---------------------------------------------------------------- ErrorDialog
+
+class ErrorDialog(tk.Toplevel):
+    def __init__(self, parent, title, body, app=None):
+        super().__init__(parent)
+        self.app = app
+        self.title(title)
+        self.geometry("640x420")
+        self.transient(parent)
+
+        frame = ttk.Frame(self, padding=6)
+        frame.pack(fill="both", expand=True)
+
+        txt = ScrolledText(frame, wrap="word", font=MONO)
+        txt.pack(fill="both", expand=True)
+        txt.insert("1.0", body)
+        txt.configure(state="disabled")
+
+        btns = ttk.Frame(frame)
+        btns.pack(fill="x", pady=(6, 0))
+        ttk.Button(btns, text="Close", command=self.destroy).pack(side="right")
+        ttk.Button(
+            btns, text="Copy",
+            command=lambda: self._copy(txt.get("1.0", "end-1c")),
+        ).pack(side="right", padx=(0, 4))
+
+    def _copy(self, content):
+        self.clipboard_clear()
+        self.clipboard_append(content)
+        if self.app:
+            self.app.set_status("copied")
+
+
 # ---------------------------------------------------------------- SettingsDialog
 
 class SettingsDialog(tk.Toplevel):
@@ -285,7 +336,6 @@ class SettingsDialog(tk.Toplevel):
         outer = ttk.Frame(self, padding=10)
         outer.pack(fill="both", expand=True)
 
-        # Buttons packed FIRST at bottom
         btns = ttk.Frame(outer)
         btns.pack(side="bottom", fill="x", pady=(8, 0))
         ttk.Button(btns, text="Reset", command=self._reset).pack(side="left")
@@ -301,7 +351,12 @@ class SettingsDialog(tk.Toplevel):
             f = ttk.Frame(parent)
             f.pack(fill="x", pady=1)
             ttk.Label(f, text=label, width=18, anchor="w").pack(side="left")
-            v = tk.StringVar(value=str(self.gcfg.get(key, DEFAULT_CONFIG.get(key, ""))))
+            raw = self.gcfg.get(key, DEFAULT_CONFIG.get(key, ""))
+            if key == "compiler_flags":
+                raw = _sanitize_flags_str(raw)
+            elif isinstance(raw, (list, tuple)):
+                raw = " ".join(str(x) for x in raw)
+            v = tk.StringVar(value=str(raw))
             ttk.Entry(f, textvariable=v, width=width).pack(side="left")
             self.vars[key] = v
 
@@ -393,7 +448,12 @@ class SettingsDialog(tk.Toplevel):
         if not messagebox.askyesno("Reset", "Reset settings to defaults?", parent=self):
             return
         for key, v in self.vars.items():
-            v.set(str(DEFAULT_CONFIG.get(key, "")))
+            raw = DEFAULT_CONFIG.get(key, "")
+            if key == "compiler_flags":
+                raw = _sanitize_flags_str(raw)
+            elif isinstance(raw, (list, tuple)):
+                raw = " ".join(str(x) for x in raw)
+            v.set(str(raw))
         self.match_var.set(DEFAULT_CONFIG["match_mode"])
         self.stop_var.set(DEFAULT_CONFIG["stop_on_fail"])
         self._hotkeys = dict(DEFAULT_HOTKEYS)
@@ -416,7 +476,8 @@ class SettingsDialog(tk.Toplevel):
                     messagebox.showerror("Invalid", f"{key} must be int", parent=self)
                     return
             elif key == "compiler_flags":
-                self.gcfg[key] = val.split()
+                s = _sanitize_flags_str(val)
+                self.gcfg[key] = s.split() if s else []
             else:
                 self.gcfg[key] = val
         self.gcfg["match_mode"] = self.match_var.get()
@@ -727,11 +788,9 @@ class StressApp:
 
     def _build_ui(self):
         self.root.columnconfigure(0, weight=1)
-        # opts row stays compact; bottom notebook absorbs extra space
         self.root.rowconfigure(2, weight=0)
         self.root.rowconfigure(4, weight=1)
 
-        # ---- top: solution + generator ----
         top = ttk.Frame(self.root, padding=(6, 6, 6, 0))
         top.grid(row=0, column=0, sticky="ew")
         top.columnconfigure(1, weight=1)
@@ -750,7 +809,6 @@ class StressApp:
         ttk.Button(top, text="\u2026", width=2, command=self._browse_generator).grid(row=1, column=2, pady=(4, 0))
         ttk.Button(top, text="\u25be", width=2, command=lambda: self._path_menu(self.gen_var, "generator")).grid(row=1, column=3, padx=(2, 0), pady=(4, 0))
 
-        # ---- mode notebook ----
         mode_wrap = ttk.Frame(self.root, padding=(6, 6, 6, 0))
         mode_wrap.grid(row=1, column=0, sticky="ew")
         mode_wrap.columnconfigure(0, weight=1)
@@ -763,7 +821,6 @@ class StressApp:
         self._build_checker_tab()
         self._build_interactive_tab()
 
-        # ---- options ----
         opts = ttk.Frame(self.root, padding=(6, 6, 6, 0))
         opts.grid(row=2, column=0, sticky="ew")
         opts.columnconfigure(1, weight=1)
@@ -787,7 +844,6 @@ class StressApp:
             row=1, column=1, columnspan=3, sticky="ew", padx=(0, 4), pady=(4, 0),
         )
 
-        # Row 2: Max fails + Stop on fail + Skip compile — all in one line
         row2 = ttk.Frame(opts)
         row2.grid(row=2, column=0, columnspan=4, sticky="ew", pady=(4, 0))
         ttk.Label(row2, text="Max fails", width=10).pack(side="left")
@@ -806,7 +862,6 @@ class StressApp:
             row2, text="Skip compile", variable=self.no_compile_var,
         ).pack(side="left", padx=(12, 0))
 
-        # ---- action row ----
         action = ttk.Frame(self.root, padding=(6, 6, 6, 0))
         action.grid(row=3, column=0, sticky="ew")
         action.columnconfigure(2, weight=1)
@@ -820,7 +875,6 @@ class StressApp:
         self.progress_var = tk.StringVar(value="ready")
         ttk.Label(action, textvariable=self.progress_var, font=UI_SMALL).grid(row=0, column=2, sticky="w")
 
-        # ---- bottom notebook ----
         bottom = ttk.Frame(self.root, padding=(6, 6, 6, 6))
         bottom.grid(row=4, column=0, sticky="nsew")
         bottom.columnconfigure(0, weight=1)
@@ -829,7 +883,6 @@ class StressApp:
         self.bottom_nb = ttk.Notebook(bottom)
         self.bottom_nb.grid(row=0, column=0, sticky="nsew")
 
-        # ---- Log tab ----
         log_frame = ttk.Frame(self.bottom_nb)
         self.bottom_nb.add(log_frame, text="Log")
         log_frame.columnconfigure(0, weight=1)
@@ -848,7 +901,6 @@ class StressApp:
         self.log_text.tag_configure("SYS", foreground=SYS_FG)
         self.log_text.tag_configure("LOG", foreground=LOG_FG)
 
-        # ---- Failures tab ----
         fails_frame = ttk.Frame(self.bottom_nb)
         self.bottom_nb.add(fails_frame, text="Failures")
         fails_frame.columnconfigure(0, weight=1)
@@ -877,6 +929,7 @@ class StressApp:
         fbar.grid(row=1, column=0, sticky="ew", pady=(2, 0))
         ttk.Button(fbar, text="View", command=self._view_selected_fail).pack(side="left")
         ttk.Button(fbar, text="Add to runner", command=self._add_selected_to_runner).pack(side="left", padx=(4, 0))
+        ttk.Button(fbar, text="Add all to runner", command=self._add_all_fails_to_runner).pack(side="left", padx=(4, 0))
         ttk.Button(fbar, text="Open folder", command=self._open_fails_folder).pack(side="left", padx=(4, 0))
         ttk.Button(fbar, text="Clear", command=self._clear_fails).pack(side="right")
 
@@ -890,7 +943,6 @@ class StressApp:
             self.fail_preview_nb.add(t, text=label)
             self.fail_preview_widgets[label.lower()] = t
 
-        # ---- Preview tab ----
         prev_frame = ttk.Frame(self.bottom_nb)
         self.bottom_nb.add(prev_frame, text="Preview")
         prev_frame.columnconfigure(0, weight=1)
@@ -911,7 +963,6 @@ class StressApp:
         self.preview_text = ScrolledText(prev_frame, wrap="none", font=MONO, state="disabled", height=5)
         self.preview_text.grid(row=1, column=0, sticky="nsew", pady=(2, 0))
 
-        # ---- status bar ----
         self.status_var = tk.StringVar(value="ready")
         status = ttk.Label(
             self.root, textvariable=self.status_var,
@@ -1458,6 +1509,8 @@ class StressApp:
             self._log_sys(f"  {key} OK")
         elif status == "failed":
             self._log_sys(f"  {key} FAILED")
+        elif status == "cancelled":
+            self._log_sys(f"  {key} cancelled")
         elif status == "skipped":
             self._log_sys("skip compile (using existing binaries)")
 
@@ -1501,8 +1554,11 @@ class StressApp:
         self._set_running(False)
 
     def _apply_error(self, msg):
-        self.set_status(f"error: {msg}")
-        self._log_sys(f"ERROR: {msg}")
+        first_line = msg.split("\n", 1)[0].strip()
+        self.set_status(f"error: {first_line}")
+        self._log_sys(f"ERROR: {first_line}")
+        if "compile failed" in msg or "compile timed out" in msg:
+            ErrorDialog(self.root, "Compile error", msg, app=self)
 
     def _fmt_time(self, s):
         s = int(s)
@@ -1570,12 +1626,39 @@ class StressApp:
         info = next((f for f in self.fails if f["index"] == idx), None)
         if not info:
             return
+        self._add_fail_to_runner(info)
+        self.set_status(f"added fail #{idx} to runner tests")
+
+    def _add_all_fails_to_runner(self):
+        if not self.source or not self.fails:
+            self.set_status("no fails to add")
+            return
+        if not messagebox.askyesno(
+            "Add all fails",
+            f"Add all {len(self.fails)} fails to runner tests?\n"
+            "Each will be inserted as a new test (no overwrite).",
+            parent=self.root,
+        ):
+            return
+
+        ok = 0
+        fail = 0
+        for info in self.fails:
+            if self._add_fail_to_runner(info, silent=True):
+                ok += 1
+            else:
+                fail += 1
+
+        self.set_status(f"added {ok} fails to runner ({fail} failed)")
+
+    def _add_fail_to_runner(self, info, silent=False):
         d = Path(info.get("dir", ""))
         inp = d / "input.txt"
         exp = d / "expected.txt"
         if not inp.is_file() or not exp.is_file():
-            messagebox.showerror("Error", "input or expected file missing", parent=self.root)
-            return
+            if not silent:
+                messagebox.showerror("Error", "input or expected file missing", parent=self.root)
+            return False
         import subprocess
         try:
             r = subprocess.run(
@@ -1583,11 +1666,14 @@ class StressApp:
                 capture_output=True, text=True, timeout=30,
             )
             if r.returncode == 0:
-                self.set_status(f"added fail #{idx} to runner tests")
-            else:
+                return True
+            if not silent:
                 messagebox.showerror("Error", r.stderr or r.stdout, parent=self.root)
+            return False
         except Exception as e:
-            messagebox.showerror("Error", str(e), parent=self.root)
+            if not silent:
+                messagebox.showerror("Error", str(e), parent=self.root)
+            return False
 
     def _view_selected_fail(self):
         sel = self.fails_tree.selection()

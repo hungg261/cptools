@@ -12,7 +12,7 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 
 DEFAULT_CONFIG = {
     "compiler": "g++",
-    "compiler_flags": ["-O2", "-std=c++17"],
+    "compiler_flags": "-O2 -std=c++17",
     "compile_timeout": 60,
     "time_limit": 1.0,
     "warn_factor": 1.0,
@@ -38,6 +38,26 @@ DEFAULT_PER_SOLUTION = {
 }
 
 
+def _sanitize_flags(raw):
+    """Normalize compiler flags to a clean list[str]."""
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        s = raw
+        for ch in "[]'\",":
+            s = s.replace(ch, " ")
+        return s.split()
+    if isinstance(raw, (list, tuple)):
+        parts = []
+        for item in raw:
+            s = str(item)
+            for ch in "[]'\",":
+                s = s.replace(ch, " ")
+            parts.extend(s.split())
+        return parts
+    return str(raw).split()
+
+
 # ---------- global config ----------
 
 def load_config():
@@ -61,8 +81,7 @@ def load_config():
             except (TypeError, ValueError):
                 pass
         elif k == "compiler_flags":
-            if isinstance(v, list):
-                cfg[k] = list(v)
+            cfg[k] = _sanitize_flags(v)
         elif k in ("stop_on_fail", "no_compile"):
             if isinstance(v, bool):
                 cfg[k] = v
