@@ -49,10 +49,11 @@ def run_stress(env, *args, timeout=60):
 def gen_cpp(tmp_path):
     f = tmp_path / "gen.cpp"
     f.write_text(
-        "#include <bits/stdc++.h>\n"
+        "#include <iostream>\n"
+        "#include <random>\n"
         "using namespace std;\n"
         "int main(int argc, char** argv) {\n"
-        "    unsigned seed = argc > 2 ? stoul(argv[2]) : 0;\n"
+        "    unsigned seed = argc > 2 ? (unsigned)stoul(argv[2]) : 0u;\n"
         "    mt19937 rng(seed);\n"
         "    cout << (rng() % 10 + 1) << endl;\n"
         "    return 0;\n"
@@ -66,7 +67,7 @@ def gen_cpp(tmp_path):
 def brute_cpp(tmp_path):
     f = tmp_path / "brute.cpp"
     f.write_text(
-        "#include <bits/stdc++.h>\n"
+        "#include <iostream>\n"
         "using namespace std;\n"
         "int main() { int n; cin >> n; cout << n << endl; return 0; }\n",
         encoding="utf-8",
@@ -78,7 +79,7 @@ def brute_cpp(tmp_path):
 def sol_good_cpp(tmp_path):
     f = tmp_path / "sol_good.cpp"
     f.write_text(
-        "#include <bits/stdc++.h>\n"
+        "#include <iostream>\n"
         "using namespace std;\n"
         "int main() { int n; cin >> n; cout << n << endl; return 0; }\n",
         encoding="utf-8",
@@ -90,7 +91,7 @@ def sol_good_cpp(tmp_path):
 def sol_bad_cpp(tmp_path):
     f = tmp_path / "sol_bad.cpp"
     f.write_text(
-        "#include <bits/stdc++.h>\n"
+        "#include <iostream>\n"
         "using namespace std;\n"
         "int main() { int n; cin >> n; cout << n + 1 << endl; return 0; }\n",
         encoding="utf-8",
