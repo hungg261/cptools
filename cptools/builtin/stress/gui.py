@@ -569,8 +569,17 @@ class StressApp:
         self._iter = 0
 
         self.root.title("Stress Test")
-        self.root.geometry("640x780")
-        self.root.minsize(520, 580)
+        try:
+            sw = self.root.winfo_screenwidth()
+            sh = self.root.winfo_screenheight()
+            w = min(660, int(sw * 0.9))
+            h = min(800, int(sh * 0.92))
+            x = max(20, (sw - w) // 2)
+            y = max(20, (sh - h) // 6)
+            self.root.geometry(f"{w}x{h}+{x}+{y}")
+        except Exception:
+            self.root.geometry("660x800")
+        self.root.minsize(520, 560)
 
         self._setup_style()
         self._build_menubar()
@@ -717,8 +726,8 @@ class StressApp:
 
     def _build_ui(self):
         self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(2, weight=3)
-        self.root.rowconfigure(4, weight=2)
+        self.root.rowconfigure(2, weight=4)
+        self.root.rowconfigure(4, weight=1)
 
         top = ttk.Frame(self.root, padding=(6, 6, 6, 0))
         top.grid(row=0, column=0, sticky="ew")
@@ -785,6 +794,14 @@ class StressApp:
             opts, text="Stop on first fail", variable=self.stop_var,
         ).grid(row=3, column=2, columnspan=2, sticky="w", pady=(4, 0))
 
+        self.no_compile_var = tk.BooleanVar(
+            value=bool(self.gcfg.get("no_compile", False))
+        )
+        ttk.Checkbutton(
+            opts, text="Skip compile (use existing binaries)",
+            variable=self.no_compile_var,
+        ).grid(row=4, column=0, columnspan=4, sticky="w", pady=(2, 0))
+
         action = ttk.Frame(self.root, padding=(6, 6, 6, 0))
         action.grid(row=3, column=0, sticky="ew")
         action.columnconfigure(2, weight=1)
@@ -811,7 +828,9 @@ class StressApp:
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
 
-        self.log_text = ScrolledText(log_frame, wrap="none", font=MONO, state="disabled")
+        self.log_text = ScrolledText(
+            log_frame, wrap="none", font=MONO, state="disabled", height=6,
+        )
         self.log_text.grid(row=0, column=0, sticky="nsew")
         self.log_text.tag_configure("OK", foreground=OK_FG)
         self.log_text.tag_configure("WARN", foreground=WARN_FG)
@@ -826,10 +845,11 @@ class StressApp:
         self.bottom_nb.add(fails_frame, text="Failures")
         fails_frame.columnconfigure(0, weight=1)
         fails_frame.rowconfigure(0, weight=1)
+        fails_frame.rowconfigure(2, weight=1)
 
         self.fails_tree = ttk.Treeview(
             fails_frame, columns=("id", "seed", "status", "time"),
-            show="headings", selectmode="browse",
+            show="headings", selectmode="browse", height=5,
         )
         self.fails_tree.heading("id", text="#")
         self.fails_tree.heading("seed", text="Seed")
@@ -843,13 +863,25 @@ class StressApp:
         self.fails_tree.tag_configure("WA", foreground=WA_FG)
         self.fails_tree.tag_configure("TLE", foreground=TLE_FG)
         self.fails_tree.tag_configure("RTE", foreground=RTE_FG)
+        self.fails_tree.bind("<<TreeviewSelect>>", lambda e: self._update_fail_preview())
         self.fails_tree.bind("<Double-1>", lambda e: self._view_selected_fail())
 
         fbar = ttk.Frame(fails_frame)
         fbar.grid(row=1, column=0, sticky="ew", pady=(4, 0))
-        ttk.Button(fbar, text="View", command=self._view_selected_fail).pack(side="left")
-        ttk.Button(fbar, text="Open fails folder", command=self._open_fails_folder).pack(side="left", padx=(4, 0))
+        ttk.Button(fbar, text="View details", command=self._view_selected_fail).pack(side="left")
+        ttk.Button(fbar, text="Add to runner", command=self._add_selected_to_runner).pack(side="left", padx=(4, 0))
+        ttk.Button(fbar, text="Open folder", command=self._open_fails_folder).pack(side="left", padx=(4, 0))
         ttk.Button(fbar, text="Clear", command=self._clear_fails).pack(side="right")
+
+        self.fail_preview_nb = ttk.Notebook(fails_frame)
+        self.fail_preview_nb.grid(row=2, column=0, sticky="nsew", pady=(4, 0))
+
+        self.fail_preview_widgets = {}
+        for label in ("Input", "Expected", "Got"):
+            t = ScrolledText(self.fail_preview_nb, wrap="none", font=MONO, height=5)
+            t.configure(state="disabled")
+            self.fail_preview_nb.add(t, text=label)
+            self.fail_preview_widgets[label.lower()] = t
 
         prev_frame = ttk.Frame(self.bottom_nb)
         self.bottom_nb.add(prev_frame, text="Preview")
@@ -1031,6 +1063,10 @@ class StressApp:
 
         self.fails = []
         self.fails_tree.delete(*self.fails_tree.get_children())
+        for w in self.fail_preview_widgets.values():
+            w.configure(state="normal")
+            w.delete("1.0", "end")
+            w.configure(state="disabled")
         self._refresh_preview_dropdown()
         self._reload_preview()
         self._rebuild_recent_menu()
@@ -1319,11 +1355,17 @@ class StressApp:
         except ValueError:
             self.gcfg["max_fails"] = 50
         self.gcfg["stop_on_fail"] = self.stop_var.get()
+        self.gcfg["no_compile"] = self.no_compile_var.get()
         _save_full_cfg(self.gcfg)
 
         self.fails = []
         self.fails_tree.delete(*self.fails_tree.get_children())
+        for w in self.fail_preview_widgets.values():
+            w.configure(state="normal")
+            w.delete("1.0", "end")
+            w.configure(state="disabled")
         self._clear_log()
+        self.bottom_nb.select(0)
         self._iter = 0
         self._start_time = time.monotonic()
 
@@ -1335,6 +1377,7 @@ class StressApp:
             on_progress=self._cb_progress,
             on_done=self._cb_done,
             on_error=self._cb_error,
+            on_compile=self._cb_compile,
             cancel_event=self.cancel_event,
         )
 
@@ -1368,6 +1411,9 @@ class StressApp:
     def _cb_error(self, msg):
         self.queue.put(("error", msg))
 
+    def _cb_compile(self, key, status, src):
+        self.queue.put(("compile", (key, status, src)))
+
     def _poll_queue(self):
         try:
             while True:
@@ -1382,9 +1428,29 @@ class StressApp:
                     self._apply_done(payload)
                 elif kind == "error":
                     self._apply_error(payload)
+                elif kind == "compile":
+                    self._apply_compile(payload)
         except queue.Empty:
             pass
         self.root.after(40, self._poll_queue)
+
+    def _log_sys(self, msg):
+        self.log_text.configure(state="normal")
+        self.log_text.insert("end", msg + "\n", "SYS")
+        self.log_text.see("end")
+        self.log_text.configure(state="disabled")
+
+    def _apply_compile(self, payload):
+        key, status, src = payload
+        if status == "compiling":
+            name = Path(src).name if src else key
+            self._log_sys(f"compiling {key}: {name}")
+        elif status == "done":
+            self._log_sys(f"  {key} OK")
+        elif status == "failed":
+            self._log_sys(f"  {key} FAILED")
+        elif status == "skipped":
+            self._log_sys("skip compile (using existing binaries)")
 
     def _apply_log(self, payload):
         iter_n, seed, status, elapsed = payload
@@ -1427,6 +1493,7 @@ class StressApp:
 
     def _apply_error(self, msg):
         self.set_status(f"error: {msg}")
+        self._log_sys(f"ERROR: {msg}")
 
     def _fmt_time(self, s):
         s = int(s)
@@ -1448,6 +1515,70 @@ class StressApp:
         self.log_text.configure(state="disabled")
 
     # ------------------------------------------------------ fails actions
+
+    def _update_fail_preview(self):
+        sel = self.fails_tree.selection()
+        for w in self.fail_preview_widgets.values():
+            w.configure(state="normal")
+            w.delete("1.0", "end")
+            w.configure(state="disabled")
+        if not sel:
+            return
+        idx = int(sel[0])
+        info = next((f for f in self.fails if f["index"] == idx), None)
+        if not info:
+            return
+        d = Path(info.get("dir", ""))
+        if not d.is_dir():
+            return
+        for name, key in (
+            ("input.txt", "input"),
+            ("expected.txt", "expected"),
+            ("got.txt", "got"),
+        ):
+            p = d / name
+            w = self.fail_preview_widgets[key]
+            if p.is_file():
+                try:
+                    w.configure(state="normal")
+                    w.insert("1.0", p.read_text(encoding="utf-8", errors="replace"))
+                    w.configure(state="disabled")
+                except Exception:
+                    pass
+        log = d / "interaction_log.txt"
+        if log.is_file():
+            w = self.fail_preview_widgets["expected"]
+            w.configure(state="normal")
+            w.delete("1.0", "end")
+            w.insert("1.0", "[interaction log]\n" + log.read_text(encoding="utf-8", errors="replace"))
+            w.configure(state="disabled")
+
+    def _add_selected_to_runner(self):
+        sel = self.fails_tree.selection()
+        if not sel:
+            return
+        idx = int(sel[0])
+        info = next((f for f in self.fails if f["index"] == idx), None)
+        if not info:
+            return
+        d = Path(info.get("dir", ""))
+        inp = d / "input.txt"
+        exp = d / "expected.txt"
+        if not inp.is_file() or not exp.is_file():
+            messagebox.showerror("Error", "input or expected file missing", parent=self.root)
+            return
+        import subprocess
+        try:
+            r = subprocess.run(
+                ["cpt", "run", "test", "add", str(self.source), str(inp), str(exp)],
+                capture_output=True, text=True, timeout=30,
+            )
+            if r.returncode == 0:
+                self.set_status(f"added fail #{idx} to runner tests")
+            else:
+                messagebox.showerror("Error", r.stderr or r.stdout, parent=self.root)
+        except Exception as e:
+            messagebox.showerror("Error", str(e), parent=self.root)
 
     def _view_selected_fail(self):
         sel = self.fails_tree.selection()
@@ -1473,6 +1604,10 @@ class StressApp:
         clear_fails(self.source)
         self.fails = []
         self.fails_tree.delete(*self.fails_tree.get_children())
+        for w in self.fail_preview_widgets.values():
+            w.configure(state="normal")
+            w.delete("1.0", "end")
+            w.configure(state="disabled")
         self.set_status("fails cleared")
 
     # ------------------------------------------------------ hotkeys

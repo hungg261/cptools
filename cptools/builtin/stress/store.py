@@ -22,6 +22,7 @@ DEFAULT_CONFIG = {
     "match_mode": "token",
     "stop_on_fail": True,
     "max_fails": 50,
+    "no_compile": False,
 }
 
 DEFAULT_PER_SOLUTION = {
@@ -62,6 +63,11 @@ def load_config():
         elif k == "compiler_flags":
             if isinstance(v, list):
                 cfg[k] = list(v)
+        elif k in ("stop_on_fail", "no_compile"):
+            if isinstance(v, bool):
+                cfg[k] = v
+            else:
+                cfg[k] = str(v).lower() in ("1", "true", "yes", "on")
         else:
             cfg[k] = v
     return cfg

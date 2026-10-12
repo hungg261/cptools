@@ -123,6 +123,7 @@ class StressRunner:
         self, global_cfg, sol_cfg, source,
         on_start=None, on_log=None, on_fail=None,
         on_progress=None, on_done=None, on_error=None,
+        on_compile=None,
         cancel_event=None,
     ):
         self.gcfg = global_cfg
@@ -134,6 +135,7 @@ class StressRunner:
         self.on_progress = on_progress or (lambda *a: None)
         self.on_done = on_done or (lambda *a: None)
         self.on_error = on_error or (lambda msg: None)
+        self.on_compile = on_compile or (lambda *a: None)
         self.cancel_event = cancel_event or threading.Event()
         self._procs = set()
 
@@ -142,19 +144,9 @@ class StressRunner:
         for p in list(self._procs):
             _kill(p)
 
-    def _compile(self):
-        compiler = self.gcfg.get("compiler") or "g++"
-        flags = list(self.gcfg.get("compiler_flags") or [])
-        timeout = int(self.gcfg.get("compile_timeout", 60))
+    def _compute_binaries(self):
         bd = bin_dir(self.source)
-
-        # auto-include testlib.h if downloaded
-        tl_dir = testlib_dir()
-        if (tl_dir / "testlib.h").is_file():
-            flags.append(f"-I{tl_dir}")
-
         mode = self.scfg.get("mode", "standard")
-
         targets = {
             "sol": self.source,
             "gen": Path(self.scfg.get("generator") or ""),
@@ -174,6 +166,18 @@ class StressRunner:
             interactor = self.scfg["interactive"].get("extra")
             if interactor:
                 targets["interactor"] = Path(interactor)
+        return targets, bd
+
+    def _compile(self):
+        compiler = self.gcfg.get("compiler") or "g++"
+        flags = list(self.gcfg.get("compiler_flags") or [])
+        timeout = int(self.gcfg.get("compile_timeout", 60))
+
+        tl_dir = testlib_dir()
+        if (tl_dir / "testlib.h").is_file():
+            flags.append(f"-I{tl_dir}")
+
+        targets, bd = self._compute_binaries()
 
         result = {}
         for key, src in targets.items():
@@ -183,22 +187,47 @@ class StressRunner:
                 result[key] = None
                 continue
             out = default_output(src, bd)
+            self.on_compile(key, "compiling", str(src))
             r = compile_source(
                 src, out, compiler=compiler, flags=flags, timeout=timeout,
             )
             if not r["ok"]:
                 err = r.get("stderr") or r.get("stdout") or ""
+                self.on_compile(key, "failed", str(src))
                 return None, f"compile failed for {key}:\n{err}"
             result[key] = out
+            self.on_compile(key, "done", str(src))
         return result, None
 
     def run(self):
         self.on_start()
 
-        bins, err = self._compile()
-        if err:
-            self.on_error(err)
-            return
+        no_compile = bool(self.gcfg.get("no_compile", False))
+
+        if no_compile:
+            targets, bd = self._compute_binaries()
+            bins = {}
+            for key, src in targets.items():
+                if not src or not Path(src).is_file():
+                    if key in ("sol", "gen"):
+                        self.on_error(f"missing file for '{key}': {src}")
+                        return
+                    bins[key] = None
+                    continue
+                out = default_output(src, bd)
+                if not out.is_file():
+                    self.on_error(
+                        f"binary not found for {key}: {out}\n"
+                        "disable 'no_compile' to build first"
+                    )
+                    return
+                bins[key] = out
+            self.on_compile("_skip_", "skipped", "")
+        else:
+            bins, err = self._compile()
+            if err:
+                self.on_error(err)
+                return
 
         sol_bin = bins["sol"]
         gen_bin = bins["gen"]
