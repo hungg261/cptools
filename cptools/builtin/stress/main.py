@@ -293,6 +293,28 @@ def cmd_gui(argv):
     return launch(source)
 
 
+def cmd_install_testlib(argv):
+    force = "--force" in argv or "-f" in argv
+
+    from tools import download_testlib
+    from store import testlib_dir
+
+    target = testlib_dir() / "testlib.h"
+
+    if target.exists() and not force:
+        print(f"testlib.h already exists: {target}")
+        print("use --force to re-download")
+        return 0
+
+    print("downloading testlib.h...")
+    path, err = download_testlib()
+    if err:
+        print(f"download failed: {err}", file=sys.stderr)
+        return 1
+    print(f"saved: {path}")
+    return 0
+
+
 # ---------- help ----------
 
 def print_help():
@@ -303,6 +325,7 @@ usage:
   cpt stress run <source> --gen GEN.cpp --brute B.cpp --checker C.cpp
   cpt stress run <source> --gen GEN.cpp --interactor I.cpp
   cpt stress gui [source]                       open GUI
+  cpt stress install-testlib [--force]          download testlib.h
   cpt stress config [show|get|set|reset]
 
 run options:
@@ -340,6 +363,7 @@ COMMANDS = {
     "run": cmd_run,
     "config": cmd_config,
     "gui": cmd_gui,
+    "install-testlib": cmd_install_testlib,
 }
 
 

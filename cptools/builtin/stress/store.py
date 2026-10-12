@@ -12,7 +12,7 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 
 DEFAULT_CONFIG = {
     "compiler": "g++",
-    "compiler_flags": ["-O2", "-std=c++17"],
+    "compiler_flags": "-O2 -std=c++17",
     "compile_timeout": 60,
     "time_limit": 1.0,
     "warn_factor": 1.0,
@@ -22,6 +22,7 @@ DEFAULT_CONFIG = {
     "match_mode": "token",
     "stop_on_fail": True,
     "max_fails": 50,
+    "no_compile": False,
 }
 
 DEFAULT_PER_SOLUTION = {
@@ -35,6 +36,26 @@ DEFAULT_PER_SOLUTION = {
     "randomize_per_iter": False,
     "gen_args": "",
 }
+
+
+def _sanitize_flags(raw):
+    """Normalize compiler flags to a clean list[str]."""
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        s = raw
+        for ch in "[]'\",":
+            s = s.replace(ch, " ")
+        return s.split()
+    if isinstance(raw, (list, tuple)):
+        parts = []
+        for item in raw:
+            s = str(item)
+            for ch in "[]'\",":
+                s = s.replace(ch, " ")
+            parts.extend(s.split())
+        return parts
+    return str(raw).split()
 
 
 # ---------- global config ----------
@@ -60,8 +81,12 @@ def load_config():
             except (TypeError, ValueError):
                 pass
         elif k == "compiler_flags":
-            if isinstance(v, list):
-                cfg[k] = list(v)
+            cfg[k] = _sanitize_flags(v)
+        elif k in ("stop_on_fail", "no_compile"):
+            if isinstance(v, bool):
+                cfg[k] = v
+            else:
+                cfg[k] = str(v).lower() in ("1", "true", "yes", "on")
         else:
             cfg[k] = v
     return cfg
@@ -171,3 +196,9 @@ def save_fail(source_path, index, seed, status, input_text,
         encoding="utf-8",
     )
     return d
+
+
+def testlib_dir():
+    p = DATA_DIR / "testlib"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
