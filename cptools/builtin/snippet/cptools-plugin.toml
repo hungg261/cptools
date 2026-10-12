@@ -1,0 +1,20 @@
+[plugin]
+name = "snippet"
+alias = ["snip"]
+version = "0.1.0"
+description = "Manage code snippets and copy them to clipboard"
+exec = ["python", "main.py"]
+protocol = 1
+
+[commands]
+list    = "List snippets"
+show    = "Print a snippet to stdout"
+copy    = "Copy a snippet to clipboard"
+add     = "Add a file to the snippets root"
+remove  = "Delete a snippet"
+rename  = "Rename a snippet"
+edit    = "Open a snippet in the editor"
+folder  = "Open the snippets root in the file manager"
+root    = "Show or change the snippets root folder"
+gui     = "Open the GUI browser"
+config  = "Manage settings"

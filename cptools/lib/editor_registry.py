@@ -114,13 +114,25 @@ def remove_editor(name: str) -> None:
 
 
 def launch(editor_key: str, path) -> bool:
+    import subprocess
     editors = list_editors()
     exe = editors.get(editor_key)
     if not exe:
         return False
-    cmd = [exe, str(path)]
-    if sys.platform == "win32" and exe.lower().endswith((".cmd", ".bat")):
-        cmd = ["cmd.exe", "/c", *cmd]
-    import subprocess
-    subprocess.Popen(cmd)
-    return True
+    try:
+        if not Path(exe).is_file():
+            return False
+    except OSError:
+        return False
+
+    try:
+        if sys.platform == "win32" and exe.lower().endswith((".cmd", ".bat")):
+            subprocess.Popen(
+                ["cmd.exe", "/c", exe, str(path)],
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+        else:
+            subprocess.Popen([exe, str(path)])
+        return True
+    except (OSError, FileNotFoundError):
+        return False
