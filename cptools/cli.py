@@ -30,21 +30,27 @@ def main(argv: list[str] | None = None) -> int:
         print_help()
         return 0
 
-    if args.rest[0] == "plugin":
+    first = args.rest[0]
+
+    if first == "plugin":
         from .commands.plugin import handle
         return handle(args.rest[1:])
 
-    name = args.rest[0]
+    if first == "self":
+        from .commands.self import handle
+        return handle(args.rest[1:])
+
     plugin_args = args.rest[1:]
 
-    plugin = registry.resolve(name)
+    plugin = registry.resolve(first)
     if plugin is None:
         console.print(
-            f"[red]error[/red] plugin '{name}' not found. Run [bold]cpt plugin list[/bold]."
+            f"[red]error[/red] plugin '{first}' not found. "
+            "Run [bold]cpt plugin list[/bold]."
         )
         return 1
 
-    return runner.run(plugin, plugin_args, invoked_as=name, as_json=args.json)
+    return runner.run(plugin, plugin_args, invoked_as=first, as_json=args.json)
 
 
 def print_help() -> None:
@@ -56,6 +62,10 @@ def print_help() -> None:
         "  cpt plugin info <name>               plugin details\n"
         "  cpt --help                           show help\n"
         "  cpt --version                        show version\n"
+        "  cpt self paths                       show data paths\n"
+        "  cpt self version                     version info\n"
+        "  cpt self doctor                      check environment\n"
+        "  cpt self reset [opts]                delete data/cache/config\n"
     )
 
 
