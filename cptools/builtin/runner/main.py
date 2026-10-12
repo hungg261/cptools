@@ -4,8 +4,8 @@ import os
 import sys
 from pathlib import Path
 
-from compile import compile_source, default_output, find_compiler, is_stale
-from run import run_binary, compare
+from cptools.lib.compile import compile_source, default_output, find_compiler, is_stale
+from cptools.lib.run import run_binary, compare
 from store import load, save, add_test, remove_test, find_test, work_root_for
 
 CONFIG_DIR = Path(os.environ["CPTOOLS_PLUGIN_CONFIG_DIR"])
