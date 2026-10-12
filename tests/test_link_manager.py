@@ -490,17 +490,18 @@ class TestEditorsCommands:
         assert r.returncode == 0
         assert "editors.mycustom" in r.stdout
 
-        r = run_plugin("config", "get", "editors.mycustom")
+        r = run_plugin("editors", "list")
         assert r.returncode == 0
-        assert r.stdout.strip() == "/fake/path/editor"
+        assert "mycustom" in r.stdout
 
     def test_unset(self, run_plugin):
         run_plugin("editors", "set", "mycustom", "/fake/path")
         r = run_plugin("editors", "unset", "mycustom")
         assert r.returncode == 0
 
-        r = run_plugin("config", "get", "editors.mycustom")
-        assert r.returncode == 1
+        r = run_plugin("editors", "list")
+        assert r.returncode == 0
+        assert "mycustom" not in r.stdout
 
     def test_set_missing_args(self, run_plugin):
         r = run_plugin("editors", "set", "vscode")

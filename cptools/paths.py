@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from platformdirs import user_config_dir, user_data_dir
 
@@ -5,13 +6,21 @@ APP = "cptools"
 
 
 def config_root() -> Path:
-    p = Path(user_config_dir(APP, appauthor=False))
+    override = os.environ.get("CPTOOLS_CONFIG_ROOT")
+    if override:
+        p = Path(override)
+    else:
+        p = Path(user_config_dir(APP, appauthor=False))
     p.mkdir(parents=True, exist_ok=True)
     return p
 
 
 def data_root() -> Path:
-    p = Path(user_data_dir(APP, appauthor=False))
+    override = os.environ.get("CPTOOLS_DATA_ROOT")
+    if override:
+        p = Path(override)
+    else:
+        p = Path(user_data_dir(APP, appauthor=False))
     p.mkdir(parents=True, exist_ok=True)
     return p
 

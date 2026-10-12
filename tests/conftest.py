@@ -15,6 +15,8 @@ def plugin_dirs(tmp_path):
         "data": tmp_path / "data",
         "cache": tmp_path / "cache",
         "work": tmp_path / "work",
+        "host_config": tmp_path / "host_config",
+        "host_data": tmp_path / "host_data",
     }
     for d in dirs.values():
         d.mkdir()
@@ -30,6 +32,8 @@ def run_plugin(plugin_dirs):
         env["CPTOOLS_PLUGIN_CONFIG_DIR"] = str(plugin_dirs["config"])
         env["CPTOOLS_PLUGIN_DATA_DIR"] = str(plugin_dirs["data"])
         env["CPTOOLS_PLUGIN_CACHE_DIR"] = str(plugin_dirs["cache"])
+        env["CPTOOLS_CONFIG_ROOT"] = str(plugin_dirs["host_config"])
+        env["CPTOOLS_DATA_ROOT"] = str(plugin_dirs["host_data"])
         env["CPTOOLS_PROTOCOL"] = "1"
         env["CPTOOLS_OUTPUT"] = output
         return subprocess.run(

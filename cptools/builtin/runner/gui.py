@@ -8,11 +8,11 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
-from compile import compile_source, default_output, find_compiler, is_stale
-from run import run_binary, compare
+from cptools.lib.compile import compile_source, default_output, find_compiler, is_stale
+from cptools.lib.run import run_binary, compare
 from store import (
-    DEFAULT_IO, load, save, add_test, remove_test, work_root_for,
-    load_history, add_to_history, clear_history, MAX_HISTORY,
+    DEFAULT_IO, load, save, add_test, work_root_for,
+    load_history, add_to_history, clear_history,
 )
 
 try:

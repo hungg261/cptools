@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from cptools.lib.editor import get_editors, launch as launch_editor, ordered_keys
+from cptools.lib import editor_registry
 from cptools.lib.open import open_file, open_folder, reveal_file
 
 from oj import (
@@ -43,17 +44,45 @@ def unique_path(directory, base, ext):
         i += 1
 
 
-def _open_with_editor(path, editor_name, cfg):
-    editor_name = editor_name or cfg.get("default_editor") or ""
+def _open_with_editor(path, editor_name):
+    editor_name = editor_name or editor_registry.get_default() or ""
     if not editor_name:
         open_file(path)
         return
-    editors = get_editors(cfg.get("editors"))
+    editors = get_editors()
     if editor_name not in editors:
         print(f"editor '{editor_name}' not found, using system default", file=sys.stderr)
         open_file(path)
         return
     launch_editor(editors[editor_name], path)
+
+
+def _migrate_editors():
+    """Move plugin's editors + default_editor to host config. Idempotent."""
+    cfg = load_config()
+    plugin_editors = cfg.get("editors") or {}
+    plugin_default = cfg.get("default_editor") or ""
+
+    if not plugin_editors and not plugin_default:
+        return
+
+    # Merge editors: host wins if key exists
+    host_editors = dict(editor_registry.list_editors())
+    for name, exe in plugin_editors.items():
+        if not exe:
+            continue
+        if name in host_editors:
+            continue
+        editor_registry.set_editor(name, exe)
+
+    # Default: only set if host empty
+    if plugin_default and not editor_registry.get_default():
+        editor_registry.set_default(plugin_default)
+
+    # Remove from plugin config
+    cfg.pop("editors", None)
+    cfg.pop("default_editor", None)
+    save_config(cfg)
 
 
 def load_oj_classes(cfg):
@@ -68,19 +97,18 @@ def load_oj_classes(cfg):
     return classes
 
 
-def _ask_and_open(path, cfg):
+def _ask_and_open(path):
     import questionary
+    from cptools.lib.editor import ordered_keys
 
-    editors = get_editors(cfg.get("editors"))
+    editors = get_editors()
     if not editors:
         answer = questionary.confirm(f"Open {path.name}?").ask()
         if answer:
             open_file(path)
         return
 
-    from cptools.lib.editor import ordered_keys
-
-    default = cfg.get("default_editor") or ""
+    default = editor_registry.get_default()
     keys = ordered_keys(editors)
     if default and default in editors:
         keys = [default] + [k for k in keys if k != default]
@@ -216,11 +244,11 @@ def cmd_new(argv):
 
     if ns.open is not None:
         editor = None if ns.open == "__default__" else ns.open
-        _open_with_editor(final, editor, cfg)
+        _open_with_editor(final, editor)
         return 0
 
     if cfg.get("prompt_after_new") and sys.stdin.isatty():
-        _ask_and_open(final, cfg)
+        _ask_and_open(final)
 
     return 0
 
@@ -373,8 +401,7 @@ def cmd_open_file(argv):
         print(f"revealed: {target}")
         return 0
 
-    cfg = load_config()
-    _open_with_editor(target, ns.editor, cfg)
+    _open_with_editor(target, ns.editor)
     print(f"opened: {target}")
     return 0
 
@@ -498,38 +525,29 @@ def cmd_undo(argv):
 def cmd_editors(argv):
     if not argv or argv[0] in ("list", "-h", "--help"):
         if argv and argv[0] in ("-h", "--help"):
-            print("usage: editors [list | detect | known | set NAME PATH | unset NAME]")
+            print("usage: editors [list | detect | known | set NAME PATH | unset NAME | default [NAME]]")
             return 0
         return _editors_list()
 
     sub = argv[0]
-
     if sub == "detect":
         return _editors_detect()
     if sub == "known":
         return _editors_known()
-
+    if sub == "default":
+        return _editors_default(argv[1:])
     if sub == "set":
         if len(argv) < 3:
             print("usage: editors set <name> <path>", file=sys.stderr)
             return 2
-        cfg = load_config()
-        eds = dict(cfg.get("editors") or {})
-        eds[argv[1]] = argv[2]
-        cfg["editors"] = eds
-        save_config(cfg)
+        editor_registry.set_editor(argv[1], argv[2])
         print(f"editors.{argv[1]} = {argv[2]}")
         return 0
-
     if sub == "unset":
         if len(argv) < 2:
             print("usage: editors unset <name>", file=sys.stderr)
             return 2
-        cfg = load_config()
-        eds = dict(cfg.get("editors") or {})
-        eds.pop(argv[1], None)
-        cfg["editors"] = eds
-        save_config(cfg)
+        editor_registry.remove_editor(argv[1])
         return 0
 
     print(f"unknown: editors {sub}", file=sys.stderr)
@@ -709,11 +727,8 @@ def _oj_test(args):
 
 
 def _editors_list():
-    from cptools.lib.editor import ordered_keys
-
-    cfg = load_config()
-    editors = get_editors(cfg.get("editors"))
-    default = cfg.get("default_editor") or ""
+    editors = get_editors()
+    default = editor_registry.get_default()
     if not editors:
         print("no editors detected")
         print()
@@ -732,30 +747,44 @@ def _editors_list():
 
 
 def _editors_detect():
-    from cptools.lib.editor import detect_editors, known_editors
+    from cptools.lib.editor_registry import detect_editors, known_editors
 
     detected = detect_editors()
-    user = load_config().get("editors") or {}
+    user = editor_registry.list_editors()
+    # user overrides detected -> only show user ones that aren't auto-detected
+    user_extra = {k: v for k, v in user.items() if k not in detected}
+
     print("Detected on this system:")
     if not detected:
         print("  (none)")
-    for key, *_ in known_editors():
+    for key, _label in known_editors():
         if key in detected:
-            print(f"  {key:15} {detected[key].exe}")
-    if user:
+            print(f"  {key:15} {detected[key]}")
+
+    if user_extra:
         print()
         print("User-configured:")
-        for key, exe in user.items():
+        for key, exe in user_extra.items():
             print(f"  {key:15} {exe}")
     return 0
 
 
 def _editors_known():
-    from cptools.lib.editor import known_editors
+    from cptools.lib.editor_registry import known_editors
 
     print("Known editor names:")
     for key, label in known_editors():
         print(f"  {key:15} {label}")
+    return 0
+
+
+def _editors_default(argv):
+    if not argv:
+        cur = editor_registry.get_default()
+        print(cur or "(none)")
+        return 0
+    editor_registry.set_default(argv[0])
+    print(f"default_editor = {argv[0]}")
     return 0
 
 
@@ -921,7 +950,8 @@ usage:
   cpt link open <url|oj|--data|--config|--problem>   open a directory
   cpt link open-file <id> [opts]              open a saved file
   cpt link rm <id> [opts]                     delete file(s) and entry
-  cpt link editors [list|detect|known|set|unset]   manage editors
+  cpt link editors [list|detect|known|set|unset|default]
+                                                   manage editors
   cpt link config [show|get|set|unset|reset]  manage settings
   cpt link template [list|add|remove|show]    manage templates
   cpt link open-file <id> [opts]              open a saved file
@@ -1018,6 +1048,7 @@ HANDLERS = {
 
 
 def main(argv):
+    _migrate_editors()
     if not argv or argv[0] in ("-h", "--help"):
         print_help()
         return 0
