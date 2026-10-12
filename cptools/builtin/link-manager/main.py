@@ -127,15 +127,29 @@ def _ask_and_open(path):
 
 
 def cmd_parse(argv):
-    if not argv:
-        print("usage: parse <url>", file=sys.stderr)
+    if not argv or argv[0] in ("-h", "--help"):
+        print("usage: parse <url> [-d DIR]")
+        return 0 if argv else 2
+
+    parser = argparse.ArgumentParser(add_help=False, prog="cpt link parse")
+    parser.add_argument("url")
+    parser.add_argument("-d", "--dir", dest="dir", default=None)
+    try:
+        ns = parser.parse_args(argv)
+    except SystemExit:
         return 2
 
-    url = argv[0]
+    url = ns.url
     cfg = load_config()
     classes = load_oj_classes(cfg)
     obj = parse_url(url, classes)
-    target = resolve_dir(cfg, obj.name if obj else None)
+    if ns.dir:
+        target = expand(ns.dir)
+        if target is None:
+            print(f"cannot resolve dir: {ns.dir}", file=sys.stderr)
+            return 1
+    else:
+        target = resolve_dir(cfg, obj.name if obj else None)
 
     if obj is None:
         if AS_JSON:

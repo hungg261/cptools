@@ -1,0 +1,19 @@
+[plugin]
+name = "folders"
+alias = ["dir"]
+version = "0.1.0"
+description = "Manage named folders for quick access"
+exec = ["python", "main.py"]
+protocol = 1
+
+[commands]
+list     = "List all registered folders"
+add      = "Register a folder"
+remove   = "Unregister a folder"
+rename   = "Rename a folder"
+show     = "Print path of a folder"
+open     = "Open one or more folders"
+open-all = "Open every registered folder"
+default  = "Get or set the default folder"
+resolve  = "Resolve a @name reference"
+config   = "Manage settings"
