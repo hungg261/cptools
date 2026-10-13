@@ -60,13 +60,13 @@ class _PipeForwarder(threading.Thread):
                 break
             if not chunk:
                 break
+            with self.log_lock:
+                self.log.append((self.prefix, chunk))
             try:
                 self.dst.write(chunk)
                 self.dst.flush()
             except (OSError, ValueError, BrokenPipeError):
                 break
-            with self.log_lock:
-                self.log.append((self.prefix, chunk))
         try:
             self.dst.close()
         except Exception:

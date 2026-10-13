@@ -192,7 +192,9 @@ class TestLog:
             tracker=set(),
             work_dir=tmp_path / "work",
         )
-        assert "received:hi" in r["log"] or "reply-to-received" in r["log"]
+        assert "start" in r["log"]
+        assert "received:start" in r["log"]
+        assert "reply-to-received" in r["log"]
 
     def test_work_files_created(self, interactive, tmp_path):
         sol = _make_solver(tmp_path)
