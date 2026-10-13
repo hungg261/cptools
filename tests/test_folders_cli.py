@@ -13,7 +13,8 @@ PLUGIN_DIR = Path(__file__).parent.parent / "cptools" / "builtin" / "folders"
 def env(tmp_path):
     cfg = tmp_path / "cfg"
     data = tmp_path / "data"
-    for d in (cfg, data):
+    cwd = tmp_path / "cwd"
+    for d in (cfg, data, cwd):
         d.mkdir()
     e = os.environ.copy()
     e["CPTOOLS_CONFIG_ROOT"] = str(cfg)
@@ -22,6 +23,7 @@ def env(tmp_path):
     e["CPTOOLS_INVOKED_AS"] = "folders"
     e["CPTOOLS_PROTOCOL"] = "1"
     e["CPTOOLS_OUTPUT"] = "human"
+    e["CPTOOLS_CWD"] = str(cwd)
     e["PYTHONIOENCODING"] = "utf-8"
     return e
 
@@ -293,3 +295,65 @@ class TestDispatch:
         r = run_folders(env, "pick", "-h")
         assert r.returncode == 0
         assert "pick" in r.stdout
+
+
+class TestAddRelativePath:
+    """add <name> <path> resolves relative paths against CPTOOLS_CWD."""
+
+    def test_dot(self, env, tmp_path):
+        cwd = tmp_path / "cwd"
+        r = run_folders(env, "add", "here", ".")
+        assert r.returncode == 0
+        assert str(cwd.resolve()) in r.stdout
+
+        r = run_folders(env, "show", "here")
+        assert r.returncode == 0
+        assert str(cwd.resolve()) in r.stdout
+
+    def test_subdir(self, env, tmp_path):
+        cwd = tmp_path / "cwd"
+        r = run_folders(env, "add", "sub", "child")
+        assert r.returncode == 0
+        expected = (cwd / "child").resolve()
+        r = run_folders(env, "show", "sub")
+        assert expected.is_absolute()
+        assert str(expected) in r.stdout
+
+    def test_dotdot(self, env, tmp_path):
+        cwd = tmp_path / "cwd"
+        r = run_folders(env, "add", "parent", "..")
+        assert r.returncode == 0
+        r = run_folders(env, "show", "parent")
+        assert str(tmp_path.resolve()) in r.stdout
+
+    def test_absolute_unchanged(self, env, tmp_path):
+        target = tmp_path / "elsewhere"
+        target.mkdir()
+        r = run_folders(env, "add", "abs", str(target))
+        assert r.returncode == 0
+        r = run_folders(env, "show", "abs")
+        assert str(target.resolve()) in r.stdout
+
+    def test_env_var(self, env, tmp_path, monkeypatch):
+        # env dict is per-test; inject MYROOT into it
+        env["MYROOT"] = str(tmp_path)
+        r = run_folders(env, "add", "v", "$MYROOT/x")
+        assert r.returncode == 0
+        r = run_folders(env, "show", "v")
+        assert str((tmp_path / "x").resolve()) in r.stdout
+
+
+class TestResolveCLIRelative:
+    """resolve <path> resolves relative paths against CPTOOLS_CWD."""
+
+    def test_dot(self, env, tmp_path):
+        cwd = tmp_path / "cwd"
+        r = run_folders(env, "resolve", ".")
+        assert r.returncode == 0
+        assert str(cwd.resolve()) in r.stdout
+
+    def test_subdir(self, env, tmp_path):
+        cwd = tmp_path / "cwd"
+        r = run_folders(env, "resolve", "sub/dir")
+        assert r.returncode == 0
+        assert str((cwd / "sub" / "dir").resolve()) in r.stdout

@@ -135,11 +135,16 @@ def cmd_add(argv):
         print("       add <name> --pick", file=sys.stderr)
         return 2
 
-    folders.set_folder(name, raw)
+    resolved = folders.resolve_user_path(raw)
+    if resolved is None:
+        print(f"cannot resolve path: {raw}", file=sys.stderr)
+        return 1
+
+    folders.set_folder(name, str(resolved))
     if AS_JSON:
-        emit_json({"ok": True, "name": name, "path": raw})
+        emit_json({"ok": True, "name": name, "path": resolved})
     else:
-        print(f"added: {name} -> {raw}")
+        print(f"added: {name} -> {resolved}")
     return 0
 
 
