@@ -9,6 +9,37 @@ def _config_file() -> Path:
     return paths.plugin_config_dir("folders") / "folders.json"
 
 
+def _user_cwd() -> Path:
+    """Directory the user invoked `cpt` from.
+
+    Host sets CPTOOLS_CWD before spawning the plugin. Fall back to the
+    process working directory when unset or invalid.
+    """
+    raw = os.environ.get("CPTOOLS_CWD")
+    if raw:
+        p = Path(raw)
+        if p.is_dir():
+            return p
+    return Path.cwd()
+
+
+def resolve_user_path(s):
+    """Resolve a user-supplied path against CPTOOLS_CWD.
+
+    Handles ~, environment variables, absolute and relative paths.
+    Returns an absolute Path.
+    """
+    if s is None:
+        return None
+    expanded = Path(os.path.expandvars(os.path.expanduser(str(s))))
+    if not expanded.is_absolute():
+        expanded = _user_cwd() / expanded
+    try:
+        return expanded.resolve()
+    except OSError:
+        return expanded
+
+
 def _empty() -> dict:
     return {"folders": {}, "default": ""}
 
@@ -70,7 +101,7 @@ def resolve_ref(ref: str) -> Path | None:
 
     - "@name"        -> path of folder "name"
     - "@name/sub"    -> path of folder "name" joined with "sub"
-    - anything else  -> expanded Path (absolute, ~, env vars)
+    - anything else  -> user path, relative to CPTOOLS_CWD
     """
     if not ref:
         return None
@@ -89,7 +120,7 @@ def resolve_ref(ref: str) -> Path | None:
         if sub:
             return base / sub
         return base
-    return Path(os.path.expandvars(os.path.expanduser(s)))
+    return resolve_user_path(s)
 
 
 def set_folder(name: str, raw_path: str) -> None:
@@ -140,8 +171,7 @@ def set_default(name: str) -> bool:
 def find_names(query: str) -> list[str]:
     """Return candidate names matching query.
 
-    Order of preference: exact, prefix, substring, fuzzy.
-    Returns [] if nothing matches.
+    Priority: exact, prefix, substring, fuzzy. Empty list means no match.
     """
     if not query:
         return []
@@ -161,8 +191,8 @@ def find_names(query: str) -> list[str]:
 def path_of(query: str):
     """Resolve a possibly fuzzy name.
 
-    Returns (name, path) on unique match, (None, list_of_candidates)
-    if ambiguous, (None, []) if nothing matches.
+    Returns (name, path) on unique match, (None, list_of_candidates) when
+    ambiguous, (None, []) when nothing matches.
     """
     if not query:
         return (None, [])

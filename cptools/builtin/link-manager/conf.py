@@ -79,7 +79,7 @@ def expand(s):
             return p.resolve()
         except OSError:
             return p
-    return Path(os.path.expandvars(os.path.expanduser(s))).resolve()
+    return folders_lib.resolve_user_path(s)
 
 
 def resolve_dir(cfg, oj_name):

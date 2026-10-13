@@ -80,9 +80,11 @@ class TestGetPath:
 
 
 class TestResolveRef:
-    def test_plain_absolute(self, cfg_file):
-        p = folders.resolve_ref("/abs/path")
-        assert p == Path("/abs/path")
+    def test_plain_absolute(self, tmp_path):
+        abs_path = tmp_path / "abs" / "path"
+        abs_path.mkdir(parents=True)
+        p = folders.resolve_ref(str(abs_path))
+        assert p == abs_path.resolve()
 
     def test_at_name(self, cfg_file):
         folders.save({"folders": {"cp": "/CP"}, "default": ""})
@@ -230,3 +232,79 @@ class TestPathOf:
         folders.save({"folders": {"codeforces": "/CF"}, "default": ""})
         name, path = folders.path_of("codeforcse")
         assert name == "codeforces"
+
+
+class TestResolveUserPath:
+    """resolve_user_path: expand, join with CPTOOLS_CWD, resolve."""
+
+    def test_absolute(self, tmp_path):
+        p = tmp_path / "abs"
+        p.mkdir()
+        assert folders.resolve_user_path(str(p)) == p.resolve()
+
+    def test_relative_joins_env_cwd(self, tmp_path, monkeypatch):
+        cwd = tmp_path / "cwd"
+        cwd.mkdir()
+        monkeypatch.setenv("CPTOOLS_CWD", str(cwd))
+        result = folders.resolve_user_path("sub")
+        assert result == (cwd / "sub").resolve()
+
+    def test_dot_resolves_to_env_cwd(self, tmp_path, monkeypatch):
+        cwd = tmp_path / "cwd"
+        cwd.mkdir()
+        monkeypatch.setenv("CPTOOLS_CWD", str(cwd))
+        assert folders.resolve_user_path(".") == cwd.resolve()
+
+    def test_dotdot_goes_up(self, tmp_path, monkeypatch):
+        cwd = tmp_path / "cwd"
+        cwd.mkdir()
+        monkeypatch.setenv("CPTOOLS_CWD", str(cwd))
+        result = folders.resolve_user_path("..")
+        assert result == tmp_path.resolve()
+
+    def test_fallback_to_process_cwd(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("CPTOOLS_CWD", raising=False)
+        monkeypatch.chdir(tmp_path)
+        assert folders.resolve_user_path(".") == tmp_path.resolve()
+
+    def test_invalid_env_cwd_ignored(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CPTOOLS_CWD", str(tmp_path / "does-not-exist"))
+        monkeypatch.chdir(tmp_path)
+        assert folders.resolve_user_path(".") == tmp_path.resolve()
+
+    def test_env_var_expansion(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("MYROOT", str(tmp_path))
+        result = folders.resolve_user_path("$MYROOT/x")
+        assert result == (tmp_path / "x").resolve()
+
+    def test_none_returns_none(self):
+        assert folders.resolve_user_path(None) is None
+
+
+class TestResolveRefRelative:
+    """resolve_ref accepts non-@ paths, resolves against CPTOOLS_CWD."""
+
+    def test_absolute(self, tmp_path):
+        p = tmp_path / "abs"
+        p.mkdir()
+        assert folders.resolve_ref(str(p)) == p.resolve()
+
+    def test_dot(self, tmp_path, monkeypatch):
+        cwd = tmp_path / "cwd"
+        cwd.mkdir()
+        monkeypatch.setenv("CPTOOLS_CWD", str(cwd))
+        assert folders.resolve_ref(".") == cwd.resolve()
+
+    def test_relative_sub(self, tmp_path, monkeypatch):
+        cwd = tmp_path / "cwd"
+        cwd.mkdir()
+        monkeypatch.setenv("CPTOOLS_CWD", str(cwd))
+        result = folders.resolve_ref("sub/dir")
+        assert result == (cwd / "sub" / "dir").resolve()
+
+    def test_at_still_wins(self, cfg_file, tmp_path, monkeypatch):
+        cwd = tmp_path / "cwd"
+        cwd.mkdir()
+        monkeypatch.setenv("CPTOOLS_CWD", str(cwd))
+        folders.save({"folders": {"cp": str(tmp_path / "CP")}, "default": ""})
+        assert folders.resolve_ref("@cp") == tmp_path / "CP"
