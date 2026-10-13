@@ -7,7 +7,7 @@ import threading
 from cptools.lib.compile import find_compiler
 from store import (
     load_config, save_config, load_solution, save_solution,
-    DEFAULT_CONFIG, work_root, fails_dir,
+    DEFAULT_CONFIG, work_root, fails_dir, validate_config,
 )
 from loop import StressRunner
 
@@ -21,12 +21,12 @@ def emit_json(obj):
 # ---------- logging ----------
 
 _STATUS_COLORS = {
-    "OK":   "\033[32m",   # green
-    "WARN": "\033[33m",   # yellow
-    "SLOW": "\033[38;5;208m",  # orange
-    "WA":   "\033[31m",   # red
+    "OK":   "\033[32m",
+    "WARN": "\033[33m",
+    "SLOW": "\033[38;5;208m",
+    "WA":   "\033[31m",
     "TLE":  "\033[31m",
-    "RTE":  "\033[35m",   # magenta
+    "RTE":  "\033[35m",
 }
 _RESET = "\033[0m"
 
@@ -39,6 +39,18 @@ def _colored(status):
 
 
 # ---------- run ----------
+
+def _exit_code_for(reason):
+    if reason in ("fail", "max_fails"):
+        return 1
+    if reason in ("compile_failed", "gen_error", "brute_error",
+                  "brute_timeout", "config_error", "missing_file",
+                  "missing_binary", "exception"):
+        return 2
+    if reason == "cancelled":
+        return 130
+    return 0
+
 
 def cmd_run(argv):
     parser = argparse.ArgumentParser(add_help=False, prog="cpt stress run")
@@ -55,7 +67,7 @@ def cmd_run(argv):
     parser.add_argument("--seed", "-s", type=int)
     parser.add_argument("--randomize-seed", action="store_true")
     parser.add_argument("--gen-args", default=None)
-    parser.add_argument("--match", choices=["token", "exact", "whitespace"])
+    parser.add_argument("--match", choices=["line", "token", "exact"])
     parser.add_argument("--max-fails", type=int)
     parser.add_argument("--no-stop-on-fail", action="store_true")
     parser.add_argument("--time-limit", type=float)
@@ -127,6 +139,14 @@ def cmd_run(argv):
     if ns.no_stop_on_fail:
         gcfg["stop_on_fail"] = False
 
+    errs = validate_config(gcfg)
+    if errs:
+        print("invalid config:", file=sys.stderr)
+        for key, msg in errs:
+            print(f"  {key}: {msg}", file=sys.stderr)
+        print("fix with: cpt stress config set <key> <value>", file=sys.stderr)
+        return 2
+
     compiler = gcfg.get("compiler") or "g++"
     if not find_compiler(compiler):
         print(f"compiler not found: {compiler}", file=sys.stderr)
@@ -177,6 +197,7 @@ def cmd_run(argv):
                 "fails": fails,
                 "elapsed": round(elapsed, 3),
                 "fails_dir": str(fails_dir(ns.source)) if fails else "",
+                "exit_code": _exit_code_for(reason),
             })
         else:
             print()
@@ -210,7 +231,7 @@ def cmd_run(argv):
         pass
 
     runner.run()
-    return 0
+    return _exit_code_for(runner.last_reason)
 
 
 # ---------- config ----------
@@ -262,14 +283,22 @@ def cmd_config(argv):
         elif key == "compiler_flags":
             cfg[key] = value.split()
         elif key == "match_mode":
-            if value not in ("token", "exact", "whitespace"):
-                print("match_mode must be token|exact|whitespace", file=sys.stderr)
+            if value not in ("line", "token", "exact"):
+                print("match_mode must be line|token|exact", file=sys.stderr)
                 return 2
             cfg[key] = value
         else:
             cfg[key] = value
+
         save_config(cfg)
         print(f"{key} = {cfg[key]}")
+
+        errs = validate_config(cfg)
+        if errs:
+            print("warning: config now has invalid values:", file=sys.stderr)
+            for k, msg in errs:
+                print(f"  {k}: {msg}", file=sys.stderr)
+            return 1
         return 0
 
     if sub == "reset":
@@ -281,7 +310,7 @@ def cmd_config(argv):
     return 2
 
 
-# ---------- gui (stub) ----------
+# ---------- gui ----------
 
 def cmd_gui(argv):
     try:
@@ -337,10 +366,16 @@ run options:
   -s, --seed N           starting seed (default: from config)
   --randomize-seed       randomize seed per iteration
   --gen-args ARGS        extra args passed to generator after seed
-  --match MODE           token | exact | whitespace
+  --match MODE           line | token | exact
   --max-fails N          stop after N fails
   --no-stop-on-fail      keep going after fails
   --time-limit SEC       override time limit
+
+exit code:
+  0    no fail found
+  1    fail found (WA/TLE/RTE)
+  2    setup error (compile, generator, brute, config)
+  130  cancelled by user
 
 config keys:
   compiler           compiler executable (default: g++)
@@ -351,7 +386,7 @@ config keys:
   slow_factor        SLOW threshold multiplier (default: 2.0)
   fail_factor        TLE threshold multiplier (default: 3.0)
   gen_timeout        generator timeout (default: 5.0)
-  match_mode         default match mode
+  match_mode         line | token | exact (default: line)
   stop_on_fail       stop on first fail (default: true)
   max_fails          max fails to collect (default: 50)
 """)

@@ -425,8 +425,17 @@ def _safe_extract_zip(src: Path, dest: Path) -> None:
 def _safe_extract_tar(src: Path, dest: Path) -> None:
     dest = dest.resolve()
     with tarfile.open(src) as t:
-        for member in t.getmembers():
+        members = t.getmembers()
+        for member in members:
             _safe_join(dest, member.name)
+            if member.issym() or member.islnk():
+                raise ValueError(
+                    f"archive contains link: {member.name}"
+                )
+            if member.isdev():
+                raise ValueError(
+                    f"archive contains device file: {member.name}"
+                )
         if sys.version_info >= (3, 12):
             t.extractall(dest, filter="data")
         else:
