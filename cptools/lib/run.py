@@ -80,5 +80,27 @@ def run_binary(binary, input_text="", timeout=5, work_dir=None, io_mode=None):
         }
 
 
-def compare(got, expected):
-    return got.rstrip() == expected.rstrip()
+def _compare_line(a, b):
+    al = [ln.rstrip() for ln in a.splitlines()]
+    bl = [ln.rstrip() for ln in b.splitlines()]
+    while al and not al[-1]:
+        al.pop()
+    while bl and not bl[-1]:
+        bl.pop()
+    return al == bl
+
+
+def _compare_token(a, b):
+    return a.split() == b.split()
+
+
+def _compare_exact(a, b):
+    return a.rstrip() == b.rstrip()
+
+
+def compare(a, b, mode="line"):
+    if mode == "exact":
+        return _compare_exact(a, b)
+    if mode == "token":
+        return _compare_token(a, b)
+    return _compare_line(a, b)

@@ -246,12 +246,12 @@ def _test_run(argv):
         return 1
 
     io_mode = data.get("io")
-    work_root = work_root_for(prep["source"])
+    match_mode = data.get("match_mode", "line")
 
     results = []
     passed = 0
     for t in tests:
-        wd = work_root / f"test_{t['id']}"
+        wd = work_root_for(prep["source"]) / f"test_{t['id']}"
         r = run_binary(
             prep["binary"], t["input"],
             timeout=int(cfg.get("timeout", 5)),
@@ -259,7 +259,7 @@ def _test_run(argv):
             io_mode=io_mode,
         )
         got = r["stdout"]
-        ok = r["ok"] and compare(got, t["expected"])
+        ok = r["ok"] and compare(got, t["expected"], match_mode)
         if ok:
             passed += 1
         results.append({

@@ -29,13 +29,19 @@ def load(source_path):
     f = _file_for(source_path)
     resolved = str(Path(source_path).resolve())
     if not f.exists():
-        return {"source": resolved, "tests": [], "io": dict(DEFAULT_IO)}
+        return {
+            "source": resolved,
+            "tests": [],
+            "io": dict(DEFAULT_IO),
+            "match_mode": "line",
+        }
     try:
         data = json.loads(f.read_text(encoding="utf-8"))
     except Exception:
         return {"source": resolved, "tests": [], "io": dict(DEFAULT_IO)}
     data.setdefault("source", resolved)
     data.setdefault("tests", [])
+    data.setdefault("match_mode", "line")
     io = dict(DEFAULT_IO)
     io.update(data.get("io") or {})
     data["io"] = io
