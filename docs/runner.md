@@ -78,6 +78,25 @@ Manual edits to the output name stop the auto-fill.
 Files are created in a per-test work directory under the plugin cache, not
 next to the source file.
 
+### Match mode
+
+Controls how solution output is compared to expected output. Set per
+source, applies to all tests.
+
+| Mode | Behavior |
+|---|---|
+| `line` (default) | strip trailing whitespace on each line, ignore trailing blank lines |
+| `token` | split on whitespace, compare token lists (ignores all formatting) |
+| `exact` | strip trailing whitespace of the whole output only |
+
+`line` covers 95% of problems: `cout << a[i][j] << " "` works without
+needing to suppress the last trailing space.
+
+`token` is useful when the output format is not part of the problem
+(interactive-style or when any valid permutation is accepted).
+
+`exact` is for cases where line/column formatting matters.
+
 ## Test storage
 
 Test cases are stored per source under `<data_root>/data/runner/tests/<hash>.json`.

@@ -65,6 +65,14 @@ HOTKEY_ACTIONS = [
     ("quit",        "Quit"),
 ]
 
+MATCH_MODES = ("line", "token", "exact")
+
+MATCH_HINTS = {
+    "line":  "rstrip each line",
+    "token": "whitespace-insensitive",
+    "exact": "strict",
+}
+
 if sys.platform == "win32":
     MONO = ("Consolas", 10)
     UI_FONT = "Segoe UI"
@@ -715,7 +723,25 @@ class SessionTab(ttk.Frame):
         self.output_file_entry.grid(row=1, column=2, sticky="ew")
         self.output_file_var.trace_add("write", self._on_output_file_change)
 
-        # Input section
+        ttk.Label(mode_box, text="Match", font=UI, anchor="w", width=7).grid(
+            row=2, column=0, sticky="w", pady=(4, 0)
+        )
+
+        self.match_mode_var = tk.StringVar(value="line")
+        self._match_cb = ttk.Combobox(
+            mode_box, textvariable=self.match_mode_var,
+            values=list(MATCH_MODES), width=8,
+            state="readonly", font=UI,
+        )
+        self._match_cb.grid(row=2, column=1, padx=(6, 6), pady=(4, 0))
+        self._match_cb.bind("<<ComboboxSelected>>", self._on_match_mode_change)
+
+        self._match_hint = ttk.Label(
+            mode_box, text=MATCH_HINTS["line"],
+            font=UI_SMALL, foreground=FG_MUTED,
+        )
+        self._match_hint.grid(row=2, column=2, sticky="w", pady=(4, 0))
+
         h1 = ttk.Frame(io)
         h1.grid(row=1, column=0, sticky="ew")
         ttk.Label(h1, text="Input", font=UI_BOLD).pack(side="left")
@@ -733,7 +759,6 @@ class SessionTab(ttk.Frame):
         self.input_text = self._mk_text(io, height=4)
         self.input_text.grid(row=2, column=0, sticky="nsew", pady=(1, 4))
 
-        # Expected section
         h2 = ttk.Frame(io)
         h2.grid(row=3, column=0, sticky="ew")
         ttk.Label(h2, text="Expected", font=UI_BOLD).pack(side="left")
@@ -751,7 +776,6 @@ class SessionTab(ttk.Frame):
         self.expected_text = self._mk_text(io, height=4)
         self.expected_text.grid(row=4, column=0, sticky="nsew", pady=(1, 4))
 
-        # Output section
         h3 = ttk.Frame(io)
         h3.grid(row=5, column=0, sticky="ew")
         ttk.Label(h3, text="Output", font=UI_BOLD).pack(side="left")
@@ -774,7 +798,6 @@ class SessionTab(ttk.Frame):
         self.got_text = self._mk_text(io, height=5, readonly=True)
         self.got_text.grid(row=6, column=0, sticky="nsew", pady=(1, 0))
 
-        # Collect buttons controlled by test-selection state
         self._io_buttons = [
             self._btn_load_input, self._btn_clear_input,
             self._btn_load_expected, self._btn_clear_expected,
@@ -817,17 +840,19 @@ class SessionTab(ttk.Frame):
 
     def _update_io_entry_state(self):
         if not self._io_enabled:
-            for w in (self._in_cb, self._out_cb,
+            for w in (self._in_cb, self._out_cb, self._match_cb,
                       self.input_file_entry, self.output_file_entry):
                 try:
                     w.configure(state="disabled")
                 except tk.TclError:
                     pass
+            self._update_match_hint()
             return
 
         try:
             self._in_cb.configure(state="readonly")
             self._out_cb.configure(state="readonly")
+            self._match_cb.configure(state="readonly")
         except tk.TclError:
             pass
 
@@ -837,6 +862,14 @@ class SessionTab(ttk.Frame):
             self.input_file_entry.configure(state=in_state)
             self.output_file_entry.configure(state=out_state)
         except tk.TclError:
+            pass
+        self._update_match_hint()
+
+    def _update_match_hint(self):
+        mode = self.match_mode_var.get()
+        try:
+            self._match_hint.configure(text=MATCH_HINTS.get(mode, ""))
+        except Exception:
             pass
 
     def _set_io_enabled(self, enabled):
@@ -852,6 +885,25 @@ class SessionTab(ttk.Frame):
     def _on_io_mode_change(self, *_):
         self._update_io_entry_state()
         self._save_io_config()
+
+    def _on_match_mode_change(self, *_):
+        if not self.tests_data:
+            return
+        mode = self.match_mode_var.get()
+        if mode not in MATCH_MODES:
+            mode = "line"
+            self.match_mode_var.set(mode)
+        self.tests_data["match_mode"] = mode
+        save(self.tests_data)
+        self._update_match_hint()
+        self.app.set_status(f"match mode: {mode}")
+
+    def _load_match_mode(self):
+        mode = (self.tests_data or {}).get("match_mode", "line") or "line"
+        if mode not in MATCH_MODES:
+            mode = "line"
+        self.match_mode_var.set(mode)
+        self._update_match_hint()
 
     def _on_input_file_change(self, *_):
         if self._suppress_io:
@@ -960,6 +1012,7 @@ class SessionTab(ttk.Frame):
 
         self.test_outputs = {}
         self._load_io_config()
+        self._load_match_mode()
         self._refresh_tree()
         self._clear_editors()
         self._clear_output()
@@ -1362,6 +1415,14 @@ class SessionTab(ttk.Frame):
             return dict(DEFAULT_IO)
         return dict(self.tests_data.get("io") or DEFAULT_IO)
 
+    def _current_match_mode(self):
+        if not self.tests_data:
+            return "line"
+        mode = self.tests_data.get("match_mode", "line")
+        if mode not in MATCH_MODES:
+            mode = "line"
+        return mode
+
     def _run_all(self):
         if not self.tests_data:
             self.app.set_status("select a source first")
@@ -1378,6 +1439,7 @@ class SessionTab(ttk.Frame):
         tests = [dict(t) for t in self.tests_data["tests"]]
         total = len(tests)
         io_mode = self._current_io()
+        match_mode = self._current_match_mode()
         work_root = work_root_for(self.source)
         self.app.set_status(f"building & running {total} test(s)...")
 
@@ -1394,7 +1456,9 @@ class SessionTab(ttk.Frame):
                     work_dir=wd,
                     io_mode=io_mode,
                 )
-                ok = r["ok"] and compare(r["stdout"], t["expected"])
+                ok = r["ok"] and compare(
+                    r["stdout"], t["expected"], match_mode,
+                )
                 results.append({
                     "id": t["id"],
                     "passed": ok,
