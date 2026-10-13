@@ -10,6 +10,8 @@ CACHE_DIR = Path(os.environ["CPTOOLS_PLUGIN_CACHE_DIR"])
 
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
+VALID_MATCH_MODES = ("line", "token", "exact")
+
 DEFAULT_CONFIG = {
     "compiler": "g++",
     "compiler_flags": "-O2 -std=c++17",
@@ -19,7 +21,7 @@ DEFAULT_CONFIG = {
     "slow_factor": 2.0,
     "fail_factor": 3.0,
     "gen_timeout": 5.0,
-    "match_mode": "token",
+    "match_mode": "line",
     "stop_on_fail": True,
     "max_fails": 50,
     "no_compile": False,
@@ -38,7 +40,7 @@ DEFAULT_PER_SOLUTION = {
     "source": "",
     "generator": "",
     "mode": "standard",
-    "standard": {"extra": "", "match_mode": "token"},
+    "standard": {"extra": "", "match_mode": "line"},
     "checker": {"extra": "", "checker": ""},
     "interactive": {"extra": "", "log_interactions": False},
     "io": {},
@@ -65,6 +67,67 @@ def _sanitize_flags(raw):
             parts.extend(s.split())
         return parts
     return str(raw).split()
+
+
+def _normalize_match_mode(v):
+    return v if v in VALID_MATCH_MODES else "line"
+
+
+def validate_config(cfg):
+    """Return list of (key, message) for invalid values.
+
+    Empty list means valid.
+    """
+    errors = []
+
+    def _pos_float(key, default):
+        v = cfg.get(key, default)
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            errors.append((key, f"must be a number, got {v!r}"))
+            return None
+        if v <= 0:
+            errors.append((key, f"must be > 0, got {v}"))
+            return None
+        return v
+
+    _pos_float("time_limit", 1.0)
+    _pos_float("gen_timeout", 5.0)
+    warn = _pos_float("warn_factor", 1.0)
+    slow = _pos_float("slow_factor", 2.0)
+    fail = _pos_float("fail_factor", 3.0)
+
+    if warn is not None and slow is not None and warn > slow:
+        errors.append(
+            ("warn_factor", f"must be <= slow_factor ({warn} > {slow})")
+        )
+    if slow is not None and fail is not None and slow > fail:
+        errors.append(
+            ("slow_factor", f"must be <= fail_factor ({slow} > {fail})")
+        )
+
+    try:
+        ct = int(cfg.get("compile_timeout", 60))
+        if ct <= 0:
+            errors.append(("compile_timeout", f"must be > 0, got {ct}"))
+    except (TypeError, ValueError):
+        errors.append(
+            ("compile_timeout",
+             f"must be an integer, got {cfg.get('compile_timeout')!r}")
+        )
+
+    try:
+        mf = int(cfg.get("max_fails", 50))
+        if mf <= 0:
+            errors.append(("max_fails", f"must be > 0, got {mf}"))
+    except (TypeError, ValueError):
+        errors.append(
+            ("max_fails",
+             f"must be an integer, got {cfg.get('max_fails')!r}")
+        )
+
+    return errors
 
 
 # ---------- global config ----------
@@ -96,6 +159,8 @@ def load_config():
                 cfg[k] = v
             else:
                 cfg[k] = str(v).lower() in ("1", "true", "yes", "on")
+        elif k == "match_mode":
+            cfg[k] = _normalize_match_mode(v)
         else:
             cfg[k] = v
     return cfg
@@ -193,6 +258,10 @@ def load_solution(source_path):
     data.setdefault("seed", 0)
     data.setdefault("randomize_per_iter", False)
     data.setdefault("gen_args", "")
+    # migrate match_mode (old "whitespace" -> "line")
+    if isinstance(data.get("standard"), dict):
+        mm = data["standard"].get("match_mode")
+        data["standard"]["match_mode"] = _normalize_match_mode(mm)
     _ensure_io_shape(data)
     return data
 

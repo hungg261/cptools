@@ -73,7 +73,7 @@ class TestPerSolution:
         assert data["mode"] == "standard"
         assert data["seed"] == 0
         assert data["randomize_per_iter"] is False
-        assert data["standard"]["match_mode"] == "token"
+        assert data["standard"]["match_mode"] == "line"
 
     def test_roundtrip(self, store, src):
         data = store.load_solution(src)
@@ -89,8 +89,22 @@ class TestPerSolution:
         data["standard"] = {"extra": "/brute.cpp"}  # no match_mode
         store.save_solution(data)
         data2 = store.load_solution(src)
-        assert data2["standard"]["match_mode"] == "token"
+        assert data2["standard"]["match_mode"] == "line"
         assert data2["standard"]["extra"] == "/brute.cpp"
+
+    def test_migrate_whitespace_to_line(self, store, src):
+        data = store.load_solution(src)
+        data["standard"]["match_mode"] = "whitespace"
+        store.save_solution(data)
+        data2 = store.load_solution(src)
+        assert data2["standard"]["match_mode"] == "line"
+
+    def test_unknown_match_mode_falls_back(self, store, src):
+        data = store.load_solution(src)
+        data["standard"]["match_mode"] = "nonsense"
+        store.save_solution(data)
+        data2 = store.load_solution(src)
+        assert data2["standard"]["match_mode"] == "line"
 
 
 class TestWorkDir:
@@ -134,3 +148,49 @@ class TestFails:
         assert not (d / "expected.txt").exists()
         assert not (d / "got.txt").exists()
         assert not (d / "stderr.txt").exists()
+
+
+class TestValidateConfig:
+    def test_defaults_valid(self, store):
+        cfg = store.load_config()
+        assert store.validate_config(cfg) == []
+
+    def test_negative_time_limit(self, store):
+        cfg = store.load_config()
+        cfg["time_limit"] = -1
+        errors = store.validate_config(cfg)
+        assert any(k == "time_limit" for k, _ in errors)
+
+    def test_warn_greater_than_slow(self, store):
+        cfg = store.load_config()
+        cfg["warn_factor"] = 5
+        cfg["slow_factor"] = 2
+        errors = store.validate_config(cfg)
+        assert any(k == "warn_factor" for k, _ in errors)
+
+    def test_slow_greater_than_fail(self, store):
+        cfg = store.load_config()
+        cfg["slow_factor"] = 10
+        cfg["fail_factor"] = 3
+        errors = store.validate_config(cfg)
+        assert any(k == "slow_factor" for k, _ in errors)
+
+    def test_bad_compile_timeout(self, store):
+        cfg = store.load_config()
+        cfg["compile_timeout"] = 0
+        errors = store.validate_config(cfg)
+        assert any(k == "compile_timeout" for k, _ in errors)
+
+    def test_bad_max_fails(self, store):
+        cfg = store.load_config()
+        cfg["max_fails"] = -5
+        errors = store.validate_config(cfg)
+        assert any(k == "max_fails" for k, _ in errors)
+
+    def test_valid_custom(self, store):
+        cfg = store.load_config()
+        cfg["time_limit"] = 2.0
+        cfg["warn_factor"] = 1.5
+        cfg["slow_factor"] = 3.0
+        cfg["fail_factor"] = 5.0
+        assert store.validate_config(cfg) == []

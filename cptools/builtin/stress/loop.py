@@ -173,8 +173,14 @@ def _classify(t, tl, warn_f, slow_f, fail_f):
 def _compare(a, b, mode):
     if mode == "exact":
         return a.rstrip() == b.rstrip()
-    if mode == "whitespace":
-        return " ".join(a.split()) == " ".join(b.split())
+    if mode == "line":
+        al = [ln.rstrip() for ln in a.splitlines()]
+        bl = [ln.rstrip() for ln in b.splitlines()]
+        while al and not al[-1]:
+            al.pop()
+        while bl and not bl[-1]:
+            bl.pop()
+        return al == bl
     return a.split() == b.split()
 
 
@@ -198,6 +204,10 @@ class StressRunner:
         self.on_compile = on_compile or (lambda *a: None)
         self.cancel_event = cancel_event or threading.Event()
         self._procs = set()
+        self.last_reason = ""
+        self.last_iterations = 0
+        self.last_fails = 0
+        self.last_elapsed = 0.0
 
     def cancel(self):
         self.cancel_event.set()
@@ -305,7 +315,7 @@ class StressRunner:
         checker_bin = bins.get("checker")
 
         mode = self.scfg.get("mode", "standard")
-        match_mode = self.scfg["standard"].get("match_mode", "token")
+        match_mode = self.scfg["standard"].get("match_mode", "line")
         interactor_bin = bins.get("interactor")
 
         io_cfg = self.scfg.get("io") or {}
@@ -543,4 +553,8 @@ class StressRunner:
             self.on_error(f"internal error: {type(e).__name__}: {e}")
 
         total = time.monotonic() - start
+        self.last_reason = reason
+        self.last_iterations = iter_n
+        self.last_fails = fails
+        self.last_elapsed = total
         self.on_done(reason, iter_n, fails, total)

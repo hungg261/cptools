@@ -201,6 +201,29 @@ class TestRunBadSolution:
             "--gen", str(gen_cpp), "--brute", str(brute_cpp),
             "--max-fails", "1",
         )
-        assert r.returncode == 0
+        assert r.returncode == 1
         assert "WA" in r.stdout
         assert "1 fails" in r.stdout or "1 fail" in r.stdout
+
+
+class TestExitCodes:
+    def test_missing_source(self, env, tmp_path, gen_cpp, brute_cpp):
+        r = run_stress(
+            env, "run", str(tmp_path / "nope.cpp"),
+            "--gen", str(gen_cpp), "--brute", str(brute_cpp),
+        )
+        assert r.returncode == 1
+
+    def test_bad_config_rejected(self, env, gen_cpp, brute_cpp, sol_good_cpp):
+        # set invalid config: warn_factor > slow_factor
+        r = run_stress(env, "config", "set", "warn_factor", "10")
+        assert r.returncode == 1
+        # running should still detect invalid config? config was saved so
+        # subsequent run will refuse
+        r = run_stress(
+            env, "run", str(sol_good_cpp),
+            "--gen", str(gen_cpp), "--brute", str(brute_cpp),
+            "--max-fails", "1",
+        )
+        assert r.returncode == 2
+        assert "invalid config" in r.stderr
