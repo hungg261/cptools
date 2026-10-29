@@ -178,6 +178,15 @@ cpt link config set oj_dirs.codeforces "@cf"
 cpt link new <url> -d @cp/cf
 ```
 
+Relative paths supplied with `-d` resolve from the directory where `cpt` was
+invoked. For example, `-d .` writes to the current directory and
+`-d ./solutions` writes to its `solutions` subdirectory:
+
+```
+cpt link new <url> -d .
+cpt link new <url> -d ./solutions
+```
+
 `@name` becomes the folder's path at runtime. If the name is not
 registered, the command fails with `cannot resolve dir: @name`.
 

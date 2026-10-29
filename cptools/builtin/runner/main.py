@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 from cptools.lib.compile import compile_source, default_output, find_compiler, is_stale
+from cptools.lib.folders import resolve_user_path
 from cptools.lib.run import run_binary, compare
 from store import load, save, add_test, remove_test, find_test, work_root_for
 
@@ -57,14 +58,18 @@ def save_config(cfg):
     )
 
 
+def _user_path(path):
+    return resolve_user_path(path)
+
+
 def _bin_dir(cfg):
     if cfg.get("bin_dir"):
-        return Path(cfg["bin_dir"]).expanduser()
+        return _user_path(cfg["bin_dir"])
     return CACHE_DIR / "bin"
 
 
 def _prepare(source, cfg, force_rebuild=False):
-    source = Path(source).expanduser().resolve()
+    source = _user_path(source)
     if not source.is_file():
         return None, {"error": f"source not found: {source}"}
 
@@ -106,13 +111,13 @@ def cmd_build(argv):
         return 2
 
     cfg = load_config()
-    source = Path(ns.source).expanduser().resolve()
+    source = _user_path(ns.source)
     if not source.is_file():
         print(f"source not found: {source}", file=sys.stderr)
         return 1
 
     output = (
-        Path(ns.output).expanduser().resolve()
+        _user_path(ns.output)
         if ns.output
         else default_output(source, _bin_dir(cfg))
     )
@@ -161,7 +166,7 @@ def cmd_run(argv):
         input_text = ns.raw
     elif ns.input:
         try:
-            input_text = Path(ns.input).read_text(encoding="utf-8")
+            input_text = _user_path(ns.input).read_text(encoding="utf-8")
         except OSError as e:
             print(f"cannot read input: {e}", file=sys.stderr)
             return 1
@@ -224,7 +229,8 @@ def _test_run(argv):
     except SystemExit:
         return 2
 
-    data = load(ns.source)
+    source = _user_path(ns.source)
+    data = load(source)
     if not data["tests"]:
         print("no tests stored for this source", file=sys.stderr)
         return 1
@@ -238,7 +244,7 @@ def _test_run(argv):
         tests = [t]
 
     cfg = load_config()
-    prep, err = _prepare(ns.source, cfg, force_rebuild=ns.rebuild)
+    prep, err = _prepare(source, cfg, force_rebuild=ns.rebuild)
     if err:
         print(err["error"], file=sys.stderr)
         if err.get("build", {}).get("stderr"):
@@ -306,13 +312,13 @@ def _test_add(argv):
         return 2
 
     try:
-        input_text = Path(ns.input_file).read_text(encoding="utf-8")
-        expected = Path(ns.expected_file).read_text(encoding="utf-8")
+        input_text = _user_path(ns.input_file).read_text(encoding="utf-8")
+        expected = _user_path(ns.expected_file).read_text(encoding="utf-8")
     except OSError as e:
         print(f"cannot read file: {e}", file=sys.stderr)
         return 1
 
-    data = load(ns.source)
+    data = load(_user_path(ns.source))
     tid = add_test(data, input_text, expected)
     save(data)
 
@@ -327,7 +333,7 @@ def _test_list(argv):
     if not argv:
         print("usage: test list <source>", file=sys.stderr)
         return 2
-    data = load(argv[0])
+    data = load(_user_path(argv[0]))
     if AS_JSON:
         emit_json(data)
         return 0
@@ -344,7 +350,7 @@ def _test_rm(argv):
     if len(argv) < 2:
         print("usage: test rm <source> <id>", file=sys.stderr)
         return 2
-    source = argv[0]
+    source = _user_path(argv[0])
     try:
         tid = int(argv[1])
     except ValueError:
@@ -361,7 +367,7 @@ def _test_rm(argv):
 
 
 def cmd_gui(argv):
-    source = argv[0] if argv else None
+    source = _user_path(argv[0]) if argv else None
     try:
         from gui import launch
     except ImportError as e:

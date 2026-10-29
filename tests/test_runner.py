@@ -10,7 +10,14 @@ PLUGIN_DIR = Path(__file__).parent.parent / "cptools" / "builtin" / "runner"
 
 
 @pytest.fixture
-def run_runner(tmp_path):
+def caller_cwd(tmp_path):
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    return cwd
+
+
+@pytest.fixture
+def run_runner(tmp_path, caller_cwd):
     config_dir = tmp_path / "_config"
     data_dir = tmp_path / "_data"
     cache_dir = tmp_path / "_cache"
@@ -26,6 +33,7 @@ def run_runner(tmp_path):
         env["CPTOOLS_PLUGIN_CACHE_DIR"] = str(cache_dir)
         env["CPTOOLS_PROTOCOL"] = "1"
         env["CPTOOLS_OUTPUT"] = "human"
+        env["CPTOOLS_CWD"] = str(caller_cwd)
         env["PYTHONIOENCODING"] = "utf-8"
         return subprocess.run(
             [sys.executable, "main.py", *args],
@@ -100,6 +108,28 @@ class TestStore:
 
         r = run_runner("test", "list", str(sample_source))
         assert "1" not in r.stdout.strip()
+
+    def test_relative_paths_use_invocation_directory(self, run_runner, caller_cwd):
+        source = caller_cwd / "main.cpp"
+        input_file = caller_cwd / "case.in"
+        expected_file = caller_cwd / "case.out"
+        source.write_text("", encoding="utf-8")
+        input_file.write_text("2 3\n", encoding="utf-8")
+        expected_file.write_text("5\n", encoding="utf-8")
+
+        r = run_runner("test", "add", "main.cpp", "case.in", "case.out")
+        assert r.returncode == 0
+
+        r = run_runner("test", "list", ".\\main.cpp")
+        assert r.returncode == 0
+        assert "input='2 3'" in r.stdout
+
+    def test_relative_missing_source_is_reported_from_invocation_directory(
+        self, run_runner, caller_cwd
+    ):
+        r = run_runner("build", "missing.cpp")
+        assert r.returncode == 1
+        assert str(caller_cwd / "missing.cpp") in r.stderr
 
     def test_rm_missing(self, run_runner, sample_source):
         r = run_runner("test", "rm", str(sample_source), "99")

@@ -39,6 +39,11 @@ class TestNew:
         assert len(files) == 1
         assert files[0].name == "1923A.cpp"
 
+    def test_relative_dir_uses_invocation_directory(self, run_plugin, plugin_dirs):
+        r = run_plugin("new", CF_URL, "-d", "./relative")
+        assert r.returncode == 0
+        assert (plugin_dirs["work"] / "relative" / "1923A.cpp").is_file()
+
     def test_dedup(self, run_plugin, plugin_dirs):
         for _ in range(3):
             r = run_plugin("new", CF_URL, "-d", str(plugin_dirs["work"]))
@@ -201,6 +206,13 @@ class TestTemplate:
 
         r = run_plugin("template", "show", "mytpl")
         assert r.returncode == 1
+
+    def test_add_relative_path(self, run_plugin, plugin_dirs):
+        src = plugin_dirs["work"] / "relative.txt"
+        src.write_text("custom $id\n", encoding="utf-8")
+
+        r = run_plugin("template", "add", "./relative.txt", "relative")
+        assert r.returncode == 0
 
     def test_add_missing_file(self, run_plugin, tmp_path):
         r = run_plugin("template", "add", str(tmp_path / "nope.py"), "nope")
