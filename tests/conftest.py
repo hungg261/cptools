@@ -36,6 +36,7 @@ def run_plugin(plugin_dirs):
         env["CPTOOLS_DATA_ROOT"] = str(plugin_dirs["host_data"])
         env["CPTOOLS_PROTOCOL"] = "1"
         env["CPTOOLS_OUTPUT"] = output
+        env["CPTOOLS_CWD"] = str(plugin_dirs["work"])
         return subprocess.run(
             [sys.executable, "main.py", *args],
             cwd=PLUGIN_DIR,

@@ -9,6 +9,7 @@ from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
 from cptools.lib.compile import compile_source, default_output, find_compiler, is_stale
+from cptools.lib.folders import resolve_user_path
 from cptools.lib.run import run_binary, compare
 from store import (
     DEFAULT_IO, load, save, add_test, work_root_for,
@@ -1004,7 +1005,7 @@ class SessionTab(ttk.Frame):
             self.binary = None
             self.source_var.set("")
         else:
-            path = Path(path).resolve()
+            path = resolve_user_path(path)
             self.source = path
             self.source_var.set(str(path))
             self.tests_data = load(path)
@@ -1298,7 +1299,7 @@ class SessionTab(ttk.Frame):
         if not find_compiler(compiler):
             return None, f"compiler not found in PATH: {compiler}"
 
-        bin_dir = (Path(self.cfg["bin_dir"]).expanduser()
+        bin_dir = (resolve_user_path(self.cfg["bin_dir"])
                    if self.cfg.get("bin_dir") else CACHE_DIR / "bin")
         output = default_output(self.source, bin_dir)
 

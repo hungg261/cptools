@@ -8,6 +8,7 @@ from pathlib import Path
 
 from cptools.lib.editor import get_editors, launch as launch_editor, ordered_keys
 from cptools.lib import editor_registry
+from cptools.lib.folders import resolve_user_path
 from cptools.lib.open import open_file, open_folder, reveal_file
 
 from oj import (
@@ -907,7 +908,7 @@ def cmd_template(argv):
         if len(argv) < 2:
             print("usage: template add <path> [name]", file=sys.stderr)
             return 2
-        src = Path(argv[1]).expanduser()
+        src = resolve_user_path(argv[1])
         if not src.is_file():
             print(f"file not found: {src}", file=sys.stderr)
             return 1

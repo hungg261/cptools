@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 CF_URL = "https://codeforces.com/contest/1923/problem/A"
 ATC_URL = "https://atcoder.jp/contests/abc300/tasks/abc300_a"
 UNKNOWN_URL = "https://example.com/problem/xyz"
@@ -39,12 +41,51 @@ class TestNew:
         assert len(files) == 1
         assert files[0].name == "1923A.cpp"
 
+    @pytest.mark.parametrize(
+        ("dir_arg", "expected_rel"),
+        [
+            (".", "."),
+            ("./nested/../output files", "output files"),
+            ("../outside", "../outside"),
+        ],
+    )
+    def test_relative_dir_uses_invocation_directory(
+        self, run_plugin, plugin_dirs, dir_arg, expected_rel
+    ):
+        r = run_plugin("new", CF_URL, "-d", dir_arg)
+        assert r.returncode == 0
+        expected = (plugin_dirs["work"] / expected_rel / "1923A.cpp").resolve()
+        assert expected.is_file()
+        assert len(list(expected.parent.glob("1923A*.cpp"))) == 1
+
+    def test_parse_relative_dir_uses_invocation_directory(self, run_plugin, plugin_dirs):
+        r = run_plugin("parse", CF_URL, "-d", "./preview")
+        assert r.returncode == 0
+        assert f"dir:  {plugin_dirs['work'] / 'preview'}" in r.stdout
+
     def test_dedup(self, run_plugin, plugin_dirs):
         for _ in range(3):
             r = run_plugin("new", CF_URL, "-d", str(plugin_dirs["work"]))
             assert r.returncode == 0
         names = sorted(f.name for f in plugin_dirs["work"].iterdir())
         assert names == ["1923A.cpp", "1923A_v2.cpp", "1923A_v3.cpp"]
+
+    @pytest.mark.parametrize("existing_count", [1, 25])
+    def test_new_skips_many_existing_versions(
+        self, run_plugin, plugin_dirs, existing_count
+    ):
+        for suffix in range(1, existing_count + 1):
+            name = "1923A.cpp" if suffix == 1 else f"1923A_v{suffix}.cpp"
+            (plugin_dirs["work"] / name).write_text("existing", encoding="utf-8")
+
+        r = run_plugin("new", CF_URL, "-d", str(plugin_dirs["work"]))
+
+        assert r.returncode == 0
+        expected_name = f"1923A_v{existing_count + 1}.cpp"
+        assert (plugin_dirs["work"] / expected_name).is_file()
+        assert (plugin_dirs["work"] / "1923A.cpp").read_text(
+            encoding="utf-8"
+        ) == "existing"
 
     def test_fills_gap(self, run_plugin, plugin_dirs):
         for _ in range(3):
@@ -201,6 +242,13 @@ class TestTemplate:
 
         r = run_plugin("template", "show", "mytpl")
         assert r.returncode == 1
+
+    def test_add_relative_path(self, run_plugin, plugin_dirs):
+        src = plugin_dirs["work"] / "relative.txt"
+        src.write_text("custom $id\n", encoding="utf-8")
+
+        r = run_plugin("template", "add", "./relative.txt", "relative")
+        assert r.returncode == 0
 
     def test_add_missing_file(self, run_plugin, tmp_path):
         r = run_plugin("template", "add", str(tmp_path / "nope.py"), "nope")

@@ -17,6 +17,14 @@ cpt run gui [source]                         open GUI
 cpt run config [show|get|set|reset]
 ```
 
+Source, binary, input, and expected-output paths may be relative to the
+directory where `cpt` was invoked. For example:
+
+```
+cpt run build .\solutions\aplusb.cpp
+cpt run test add .\solutions\aplusb.cpp .\tests\1.in .\tests\1.out
+```
+
 ## Config keys
 
 - `compiler` — compiler executable (default: `g++`)
@@ -113,11 +121,11 @@ Each entry contains `source`, `tests`, and `io`.
 ## Example
 
 ```
-cpt run build D:\CP\aplusb.cpp
-cpt run run   D:\CP\aplusb.cpp --raw "2 3"
-cpt run test add D:\CP\aplusb.cpp t1.in t1.out
-cpt run test D:\CP\aplusb.cpp
-cpt run gui   D:\CP\aplusb.cpp
+cpt run build .\aplusb.cpp
+cpt run run   .\aplusb.cpp --raw "2 3"
+cpt run test add .\aplusb.cpp .\t1.in .\t1.out
+cpt run test .\aplusb.cpp
+cpt run gui   .\aplusb.cpp
 ```
 
 ## Integration
