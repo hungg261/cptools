@@ -120,7 +120,7 @@ class TestStore:
         r = run_runner("test", "add", "main.cpp", "case.in", "case.out")
         assert r.returncode == 0
 
-        r = run_runner("test", "list", ".\\main.cpp")
+        r = run_runner("test", "list", "./main.cpp")
         assert r.returncode == 0
         assert "input='2 3'" in r.stdout
 
